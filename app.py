@@ -515,7 +515,14 @@ def create_app(test_config=None):
     def health():
         try:
             db.session.execute(text("SELECT 1"))
-            return jsonify(status="ok", database="connected"), 200
+            admin_ready = bool(
+                db.session.scalar(
+                    select(func.count(Employee.id))
+                    .join(Role, Employee.role_id == Role.id)
+                    .where(Role.name == "시스템관리자", Employee.status == "재직")
+                )
+            )
+            return jsonify(status="ok", database="connected", application_ready=admin_ready), (200 if admin_ready else 503)
         except Exception:
             return jsonify(status="error", database="unavailable"), 503
 
