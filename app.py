@@ -451,7 +451,11 @@ def build_department_summaries(departments, tasks):
                 "total": len(department_tasks),
                 "routine": summarize_tasks(department_tasks, "루틴"),
                 "major": summarize_tasks(department_tasks, "주요"),
+                "executive": summarize_tasks(department_tasks, "대표이사님 수명업무"),
+                "general": summarize_tasks(department_tasks, "일반"),
                 "ongoing": sum(1 for task in department_tasks if task.status == "진행중"),
+                "delayed": sum(1 for task in department_tasks if task.status == "지연"),
+                "hold": sum(1 for task in department_tasks if task.status == "보류"),
             }
         )
     return summaries
