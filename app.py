@@ -411,6 +411,24 @@ def can_write_department(department_id):
     return current_user.role.allows("task_manage_all") or department_id == current_user.department_id
 
 
+def can_view_all_schedules(user):
+    return user.role.name in {"관리자", "부서장", "팀장"} or user.role.allows("schedule_view_all")
+
+
+def visible_schedule_query(user):
+    query = select(Schedule)
+    if can_view_all_schedules(user):
+        return query
+    department_employee_ids = select(Employee.id).where(Employee.department_id == user.department_id)
+    return query.where(
+        or_(
+            Schedule.scope == "전사",
+            Schedule.department_id == user.department_id,
+            Schedule.assignee_id.in_(department_employee_ids),
+        )
+    )
+
+
 def summarize_tasks(tasks, type_name):
     subset = [task for task in tasks if type_name in task.type_names]
     return {
@@ -582,9 +600,9 @@ def seed_reference_data():
     db.session.flush()
 
     role_specs = [
-        ("관리자", "all", {"admin": True, "task_create": True, "task_manage_all": True, "meeting_all": True}, True),
-        ("부서장", "all", {"task_create": True, "task_view_all": True, "task_manage_department": True, "meeting_all": True}, True),
-        ("팀장", "all", {"task_create": True, "task_view_all": True, "task_manage_department": True, "meeting_all": True}, True),
+        ("관리자", "all", {"admin": True, "task_create": True, "task_manage_all": True, "meeting_all": True, "schedule_view_all": True}, True),
+        ("부서장", "all", {"task_create": True, "task_view_all": True, "task_manage_department": True, "meeting_all": True, "schedule_view_all": True}, True),
+        ("팀장", "all", {"task_create": True, "task_view_all": True, "task_manage_department": True, "meeting_all": True, "schedule_view_all": True}, True),
         ("팀원", "department", {"task_create": True, "task_manage_department": True}, True),
     ]
     roles = {}
@@ -608,6 +626,19 @@ def seed_reference_data():
             if role not in current_task_menu.roles:
                 current_task_menu.roles.append(role)
         db.session.delete(legacy_task_menu)
+    db.session.flush()
+
+    legacy_schedule_menu = db.session.scalar(
+        select(Menu).where(Menu.name == "일정", Menu.url == "/calendar")
+    )
+    current_schedule_menu = db.session.scalar(select(Menu).where(Menu.name == "일정(캘린더)"))
+    if legacy_schedule_menu and not current_schedule_menu:
+        legacy_schedule_menu.name = "일정(캘린더)"
+    elif legacy_schedule_menu and current_schedule_menu:
+        for role in list(legacy_schedule_menu.roles):
+            if role not in current_schedule_menu.roles:
+                current_schedule_menu.roles.append(role)
+        db.session.delete(legacy_schedule_menu)
     db.session.flush()
 
     root = db.session.scalar(select(Department).where(Department.name == "경영사업본부"))
@@ -640,7 +671,7 @@ def seed_reference_data():
         ("통합현황", "/", 10),
         ("각 부서 업무 현황", "/tasks", 20),
         ("업무등록", "/tasks/new", 30),
-        ("일정", "/calendar", 40),
+        ("일정(캘린더)", "/calendar", 40),
         ("일일회의", "/meetings", 50),
         ("업무일지", "/journals", 60),
         ("관리자", "/admin/employees", 90),
@@ -1158,16 +1189,14 @@ def create_app(test_config=None):
         today = date.today()
         year = request.args.get("year", today.year, type=int)
         month = request.args.get("month", today.month, type=int)
+        if year < 2000 or year > 2100 or month < 1 or month > 12:
+            year, month = today.year, today.month
         first = date(year, month, 1)
         last = date(year, month, calendar.monthrange(year, month)[1])
         tasks = db.session.scalars(
             visible_task_query(current_user).where(Task.target_date.between(first, last)).order_by(Task.target_date)
         ).all()
-        schedules_query = select(Schedule).where(Schedule.schedule_date.between(first, last))
-        if current_user.role.data_scope != "all":
-            schedules_query = schedules_query.where(
-                or_(Schedule.scope == "전사", Schedule.department_id == current_user.department_id, Schedule.assignee_id == current_user.id)
-            )
+        schedules_query = visible_schedule_query(current_user).where(Schedule.schedule_date.between(first, last))
         schedules = db.session.scalars(schedules_query.order_by(Schedule.schedule_date)).all()
         day_items = {}
         for task in tasks:
@@ -1177,7 +1206,22 @@ def create_app(test_config=None):
         weeks = calendar.Calendar(firstweekday=6).monthdatescalendar(year, month)
         previous = first - timedelta(days=1)
         next_month = last + timedelta(days=1)
-        return render_template("calendar.html", year=year, month=month, weeks=weeks, day_items=day_items, previous=previous, next_month=next_month)
+        calendar_rows = sorted(
+            [(task.target_date, "task", task) for task in tasks]
+            + [(schedule.schedule_date, "schedule", schedule) for schedule in schedules],
+            key=lambda row: (row[0], row[1], row[2].id),
+        )
+        return render_template(
+            "calendar.html",
+            year=year,
+            month=month,
+            weeks=weeks,
+            day_items=day_items,
+            calendar_rows=calendar_rows,
+            previous=previous,
+            next_month=next_month,
+            can_view_all_schedules=can_view_all_schedules(current_user),
+        )
 
     @app.route("/meetings", methods=["GET", "POST"])
     @login_required
@@ -1393,12 +1437,26 @@ def create_app(test_config=None):
             db.session.flush()
             audit("BOARD_CREATE", f"board:{board.id}")
         elif section == "schedules":
+            scope = request.form.get("scope", "전사")
+            if scope not in {"전사", "부서", "개인"}:
+                raise ValueError("일정 범위가 올바르지 않습니다.")
+            department_id = int(request.form["department_id"]) if request.form.get("department_id") else None
+            assignee_id = int(request.form["assignee_id"]) if request.form.get("assignee_id") else None
+            if scope == "부서" and not department_id:
+                raise ValueError("부서 일정은 부서를 선택해야 합니다.")
+            if scope == "개인" and not assignee_id:
+                raise ValueError("개인 일정은 담당자를 선택해야 합니다.")
+            if scope == "개인" and not department_id:
+                assignee = db.session.get(Employee, assignee_id)
+                if not assignee:
+                    raise ValueError("일정 담당자를 찾을 수 없습니다.")
+                department_id = assignee.department_id
             schedule = Schedule(
                 title=request.form["title"].strip(),
                 schedule_date=date.fromisoformat(request.form["schedule_date"]),
-                scope=request.form.get("scope", "전사"),
-                department_id=int(request.form["department_id"]) if request.form.get("department_id") else None,
-                assignee_id=int(request.form["assignee_id"]) if request.form.get("assignee_id") else None,
+                scope=scope,
+                department_id=department_id,
+                assignee_id=assignee_id,
                 memo=request.form.get("memo", "").strip(),
                 is_holiday=request.form.get("is_holiday") == "on",
                 created_by_id=current_user.id,

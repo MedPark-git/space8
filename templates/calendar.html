@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-heading"><div><span class="eyebrow">CALENDAR</span><h1>업무 일정</h1><p>업무 목표일과 전사·부서·개인 일정을 함께 확인합니다.</p></div><a class="button ghost" href="{{ url_for('task_list') }}">게시판형 보기</a></div>
+<div class="page-heading"><div><span class="eyebrow">CALENDAR</span><h1>일정(캘린더)</h1><p>{% if can_view_all_schedules %}관리자·부서장·팀장 권한으로 전체 부서 일정을 확인합니다.{% else %}전사 공통 일정과 소속 부서(팀)의 일정만 확인합니다.{% endif %}</p></div><a class="button ghost" href="{{ url_for('task_list') }}">게시판형 보기</a></div>
 <section class="panel calendar-panel">
   <div class="calendar-head"><a href="{{ url_for('task_calendar', year=previous.year, month=previous.month) }}">← 이전달</a><h2>{{ year }}년 {{ month }}월</h2><a href="{{ url_for('task_calendar', year=next_month.year, month=next_month.month) }}">다음달 →</a></div>
   <div class="calendar-grid weekdays"><div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div></div>
@@ -8,11 +8,26 @@
     {% for week in weeks %}{% for day in week %}
     <div class="calendar-day {{ 'muted' if day.month != month }} {{ 'today' if day == today }}"><span class="day-number">{{ day.day }}</span>
       <div class="day-events">{% for kind, item in day_items.get(day, []) %}
-        {% if kind == 'task' %}<a class="calendar-event {{ item.status_class }}" href="{{ url_for('task_detail', task_id=item.id) }}" title="{{ item.title }}">{{ item.title }}</a>
-        {% else %}<span class="calendar-event schedule {{ 'holiday' if item.is_holiday }}" title="{{ item.memo or item.title }}">{{ item.title }}</span>{% endif %}
+        {% if kind == 'task' %}<a class="calendar-event {{ item.status_class }}" href="{{ url_for('task_detail', task_id=item.id) }}" title="{{ item.department.name }} · {{ item.title }}">{{ item.department.name }} · {{ item.title }}</a>
+        {% else %}<span class="calendar-event schedule {{ 'holiday' if item.is_holiday }}" title="{{ item.memo or item.title }}">{{ item.department.name if item.department else (item.assignee.department.name if item.assignee else '전사') }} · {{ item.title }}</span>{% endif %}
       {% endfor %}</div>
     </div>{% endfor %}{% endfor %}
   </div>
 </section>
 <div class="calendar-legend"><span><i class="dot progress"></i>진행중</span><span><i class="dot done"></i>완료</span><span><i class="dot delayed"></i>지연</span><span><i class="dot hold"></i>보류</span><span><i class="dot schedule"></i>일정</span></div>
+<section class="panel calendar-list-panel">
+  <div class="panel-head"><div><h2>{{ year }}년 {{ month }}월 일정 목록</h2><p>달력에서 잘리지 않는 전체 일정 내용을 날짜순으로 확인합니다.</p></div><strong>{{ calendar_rows|length }}건</strong></div>
+  <div class="table-wrap"><table><thead><tr><th>일자</th><th>구분</th><th>부서</th><th>일정 내용</th><th>담당자</th><th>상태/범위</th></tr></thead><tbody>
+  {% for item_date, kind, item in calendar_rows %}
+    <tr>
+      <td>{{ item_date }}</td>
+      {% if kind == 'task' %}
+      <td><span class="tag">업무 목표일</span></td><td>{{ item.department.name }}</td><td><a class="task-title" href="{{ url_for('task_detail', task_id=item.id) }}">{{ item.title }}</a><small>{{ item.content or '-' }}</small></td><td>{{ item.assignee.name }}</td><td><span class="status {{ item.status_class }}">{{ item.status }}</span></td>
+      {% else %}
+      <td><span class="tag">등록 일정</span></td><td>{{ item.department.name if item.department else (item.assignee.department.name if item.assignee else '전사') }}</td><td><strong>{{ item.title }}</strong><small>{{ item.memo or '-' }}</small></td><td>{{ item.assignee.name if item.assignee else '-' }}</td><td>{{ item.scope }}{% if item.is_holiday %}<span class="tag">공휴일</span>{% endif %}</td>
+      {% endif %}
+    </tr>
+  {% else %}<tr><td colspan="6" class="empty">해당 월에 표시할 일정이 없습니다.</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
 {% endblock %}
