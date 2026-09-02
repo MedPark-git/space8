@@ -26,6 +26,24 @@
 
 {% elif mode == 'form' %}
 <div class="page-heading"><div><span class="eyebrow">TASK EDITOR</span><h1>{{ '업무 수정' if task else '업무 등록' }}</h1><p>동일 업무를 여러 분류에 중복 반영할 수 있습니다.</p></div><a class="button ghost" href="{{ url_for('task_list') }}">목록</a></div>
+{% if not task %}
+<section class="panel excel-register-panel">
+  <div class="excel-register-info">
+    <span class="excel-icon">XLSX</span>
+    <div><span class="eyebrow">BULK REGISTRATION</span><h2>엑셀로 업무 일괄 등록</h2><p>개인별·부서별 기존 업무가 많은 경우 제공된 양식에 작성하여 한 번에 등록할 수 있습니다.</p></div>
+  </div>
+  <div class="excel-register-actions">
+    <a class="button ghost" href="{{ url_for('task_excel_template') }}">① 엑셀 양식 다운로드</a>
+    <form method="post" action="{{ url_for('task_excel_upload') }}" enctype="multipart/form-data" class="excel-upload-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="excel-file-field"><span>② 작성한 파일 선택</span><input type="file" name="file" accept=".xlsx" required></label>
+      <button class="button primary" type="submit">③ 엑셀 업무 등록</button>
+    </form>
+  </div>
+  <div class="excel-register-guide"><strong>등록 항목</strong><span>제목</span><span>내용</span><span>업무 분류</span><span>부서</span><span>담당자</span><span>착수일</span><span>목표일</span><span>상태</span><span>진행률</span><span>반복주기</span></div>
+</section>
+<div class="section-divider"><span>또는 화면에서 직접 등록</span></div>
+{% endif %}
 <form method="post" class="panel form-panel"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="form-section"><h2>업무 분류 <em>복수 선택 가능</em></h2><div class="check-grid">{% for item in TASK_TYPES %}<label class="check-card"><input type="checkbox" name="task_types" value="{{ item }}" {{ 'checked' if task and item in task.type_names }}><span>{{ item }}</span></label>{% endfor %}</div></div>
   <div class="form-grid"><label class="span-2">업무 제목<input name="title" required maxlength="250" value="{{ task.title if task else '' }}"></label><label class="span-2">업무 내용<textarea name="content" rows="5">{{ task.content if task else '' }}</textarea></label>
