@@ -5,39 +5,28 @@
   <a class="button primary" href="{{ url_for('task_new') }}">+ 업무 등록</a>
 </div>
 
-<section class="department-selector-panel" aria-labelledby="dashboard-department-title">
-  <div class="department-selector-heading">
-    <div><h2 id="dashboard-department-title">부서별 업무 현황</h2><p>각 부서의 7개 핵심 지표를 한눈에 확인하고, 카드를 선택해 상세 업무를 조회합니다.</p></div>
+<section class="task-type-overview" aria-labelledby="task-type-overview-title">
+  <div class="task-type-overview-heading">
+    <div><h2 id="task-type-overview-title">업무 유형별 종합 현황</h2><p>업무 유형별 총 건수와 부서별·상태별 현황을 한눈에 확인합니다.</p></div>
     <a class="button ghost small" href="{{ url_for('task_list') }}">전체 업무 보기</a>
   </div>
-  <div class="department-summary-grid department-selector-grid">
-  {% for item in department_summaries %}
-  <a class="department-summary-card department-selector-card" href="{{ url_for('task_list', department_id=item.department.id) }}" aria-label="{{ item.department.name }} 업무 보기">
-    <span class="department-selector-card-head">
-      <span class="department-selector-icon {{ 'finance' if item.department.name == '재무운영팀' else ('people' if item.department.name == '인사총무팀' else ('security' if item.department.name == '보안전산팀' else 'default')) }}" aria-hidden="true">
-        {% if item.department.name == '재무운영팀' %}
-        <svg viewBox="0 0 24 24" role="img"><path d="M4 7.5h16v11H4zM7.5 7.5V5h9v2.5M4 11h16M9.5 14.5h5"/></svg>
-        {% elif item.department.name == '인사총무팀' %}
-        <svg viewBox="0 0 24 24" role="img"><circle cx="9" cy="8" r="3"/><path d="M3.5 19v-1.5A4.5 4.5 0 0 1 8 13h2a4.5 4.5 0 0 1 4.5 4.5V19M15 6.5a3 3 0 0 1 0 5.5M16.5 13.5a4.5 4.5 0 0 1 4 4.5v1"/></svg>
-        {% elif item.department.name == '보안전산팀' %}
-        <svg viewBox="0 0 24 24" role="img"><path d="M12 3.5 19 6v5.5c0 4.2-2.7 7.6-7 9-4.3-1.4-7-4.8-7-9V6zM9.5 12l1.7 1.7 3.8-4"/></svg>
-        {% else %}
-        <svg viewBox="0 0 24 24" role="img"><path d="M4 20V7h16v13M8 7V4h8v3M8 11h2m4 0h2m-8 4h2m4 0h2M3 20h18"/></svg>
-        {% endif %}
-      </span>
-      <span class="department-selector-label"><strong>{{ item.department.name }}</strong><small>부서 업무 보기</small></span>
-      <span class="department-selector-check" aria-hidden="true">→</span>
-    </span>
-    <div class="department-summary-counts">
-      <strong>루틴업무 <b>{{ item.routine.total }}</b></strong>
-      <strong>주요업무 <b>{{ item.major.total }}</b></strong>
-      <strong>대표이사님 수명업무 <b>{{ item.executive.total }}</b></strong>
-      <strong>일반업무 <b>{{ item.general.total }}</b></strong>
-      <strong>진행중 <b>{{ item.ongoing }}</b></strong>
-      <strong>지연 <b>{{ item.delayed }}</b></strong>
-      <strong>보류 <b>{{ item.hold }}</b></strong>
+  <div class="task-type-summary-grid">
+  {% for item in task_type_summaries %}
+  <article class="task-type-summary-card {{ item.tone }}">
+    <div class="task-type-summary-head">
+      <div><small>업무 분류 {{ loop.index }}</small><h2>{{ item.label }}</h2></div>
+      <a href="{{ url_for('task_list', task_type=item.type_name) }}">전체보기 →</a>
     </div>
-  </a>
+    <div class="task-type-metrics">
+      <strong class="total"><small>총 건수</small><b>{{ item.total }}</b></strong>
+      {% for department_item in item.department_counts %}
+      <strong><small>{{ department_item.department.name }}</small><b>{{ department_item.count }}</b></strong>
+      {% endfor %}
+      <strong class="ongoing"><small>진행중</small><b>{{ item.ongoing }}</b></strong>
+      <strong class="delayed"><small>지연</small><b>{{ item.delayed }}</b></strong>
+      <strong class="hold"><small>보류</small><b>{{ item.hold }}</b></strong>
+    </div>
+  </article>
   {% endfor %}
   </div>
 </section>

@@ -41,6 +41,13 @@ TASK_TYPES = ("대표이사님 수명업무", "루틴", "일반", "주요")
 TASK_STATUSES = ("진행중", "완료", "지연", "보류")
 REPEAT_CYCLES = ("없음", "일간", "주간", "월간", "분기", "연간")
 STATUS_CLASS = {"진행중": "progress", "완료": "done", "지연": "delayed", "보류": "hold"}
+DASHBOARD_TASK_TYPES = (
+    {"label": "대표이사님 수명업무", "type_name": "대표이사님 수명업무", "tone": "executive"},
+    {"label": "루틴업무", "type_name": "루틴", "tone": "routine"},
+    {"label": "일반업무", "type_name": "일반", "tone": "general"},
+    {"label": "주요업무", "type_name": "주요", "tone": "major"},
+)
+DASHBOARD_DEPARTMENT_ORDER = ("재무운영팀", "인사총무팀", "보안전산팀")
 
 
 def utcnow():
@@ -456,6 +463,30 @@ def build_department_summaries(departments, tasks):
                 "ongoing": sum(1 for task in department_tasks if task.status == "진행중"),
                 "delayed": sum(1 for task in department_tasks if task.status == "지연"),
                 "hold": sum(1 for task in department_tasks if task.status == "보류"),
+            }
+        )
+    return summaries
+
+
+def build_task_type_summaries(tasks, departments):
+    summaries = []
+    for spec in DASHBOARD_TASK_TYPES:
+        type_tasks = [task for task in tasks if spec["type_name"] in task.type_names]
+        status_summary = summarize_tasks(tasks, spec["type_name"])
+        summaries.append(
+            {
+                **spec,
+                "total": status_summary["total"],
+                "department_counts": [
+                    {
+                        "department": department,
+                        "count": sum(1 for task in type_tasks if task.department_id == department.id),
+                    }
+                    for department in departments
+                ],
+                "ongoing": status_summary["ongoing"],
+                "delayed": status_summary["delayed"],
+                "hold": status_summary["hold"],
             }
         )
     return summaries
@@ -918,19 +949,24 @@ def create_app(test_config=None):
         departments_query = select(Department).where(Department.active.is_(True))
         if current_user.role.data_scope != "all":
             departments_query = departments_query.where(Department.id == current_user.department_id)
-        visible_departments = db.session.scalars(departments_query.order_by(Department.id)).all()
-        department_summaries = build_department_summaries(visible_departments, tasks)
+        visible_departments = db.session.scalars(departments_query).all()
+        dashboard_department_order = {
+            department_name: index for index, department_name in enumerate(DASHBOARD_DEPARTMENT_ORDER)
+        }
+        visible_departments.sort(
+            key=lambda department: (
+                dashboard_department_order.get(department.name, len(dashboard_department_order)),
+                department.name,
+            )
+        )
         board_tasks = [task for task in tasks if not task.dashboard_hidden]
         routine_tasks = [task for task in board_tasks if "루틴" in task.type_names][:12]
         major_tasks = [task for task in board_tasks if "주요" in task.type_names][:12]
         return render_template(
             "dashboard.html",
-            routine=summarize_tasks(tasks, "루틴"),
-            major=summarize_tasks(tasks, "주요"),
             routine_tasks=routine_tasks,
             major_tasks=major_tasks,
-            department_summaries=department_summaries,
-            can_view_all_tasks=current_user.role.data_scope == "all",
+            task_type_summaries=build_task_type_summaries(tasks, visible_departments),
         )
 
     @app.get("/tasks")
@@ -975,6 +1011,12 @@ def create_app(test_config=None):
             departments_query = departments_query.where(Department.id == current_user.department_id)
             employees_query = employees_query.where(Employee.department_id == current_user.department_id)
         departments = db.session.scalars(departments_query.order_by(Department.name)).all()
+        departments.sort(
+            key=lambda department: (
+                department.id != current_user.department_id,
+                department.name,
+            )
+        )
         all_visible_tasks = db.session.scalars(
             visible_task_query(current_user).order_by(Task.target_date, Task.id)
         ).all()
