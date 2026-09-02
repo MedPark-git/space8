@@ -278,6 +278,22 @@ class TaskDailyLog(db.Model):
     author = db.relationship("Employee")
 
 
+class WorkJournalItem(db.Model):
+    __tablename__ = "work_journal_items"
+    id = db.Column(db.Integer, primary_key=True)
+    task_id = db.Column(db.Integer, db.ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    work_date = db.Column(db.Date, nullable=False, default=date.today, index=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False, index=True)
+    added_by_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    task = db.relationship("Task", backref=db.backref("work_journal_items", cascade="all, delete-orphan"))
+    employee = db.relationship("Employee", foreign_keys=[employee_id])
+    added_by = db.relationship("Employee", foreign_keys=[added_by_id])
+    __table_args__ = (
+        UniqueConstraint("task_id", "work_date", "employee_id", name="uq_work_journal_item"),
+    )
+
+
 class Schedule(db.Model):
     __tablename__ = "schedules"
     id = db.Column(db.Integer, primary_key=True)
@@ -393,6 +409,34 @@ def can_edit_task(task):
 
 def can_write_department(department_id):
     return current_user.role.allows("task_manage_all") or department_id == current_user.department_id
+
+
+def summarize_tasks(tasks, type_name):
+    subset = [task for task in tasks if type_name in task.type_names]
+    return {
+        "total": len(subset),
+        "today": sum(1 for task in subset if task.start_date <= date.today() <= task.target_date),
+        "ongoing": sum(1 for task in subset if task.status == "진행중"),
+        "done": sum(1 for task in subset if task.status == "완료"),
+        "delayed": sum(1 for task in subset if task.status == "지연"),
+        "hold": sum(1 for task in subset if task.status == "보류"),
+    }
+
+
+def build_department_summaries(departments, tasks):
+    summaries = []
+    for department in departments:
+        department_tasks = [task for task in tasks if task.department_id == department.id]
+        summaries.append(
+            {
+                "department": department,
+                "total": len(department_tasks),
+                "routine": summarize_tasks(department_tasks, "루틴"),
+                "major": summarize_tasks(department_tasks, "주요"),
+                "ongoing": sum(1 for task in department_tasks if task.status == "진행중"),
+            }
+        )
+    return summaries
 
 
 def refresh_overdue_tasks():
@@ -555,6 +599,17 @@ def seed_reference_data():
             role.is_system = is_system
         roles[name] = role
 
+    legacy_task_menu = db.session.scalar(select(Menu).where(Menu.name == "업무현황"))
+    current_task_menu = db.session.scalar(select(Menu).where(Menu.name == "각 부서 업무 현황"))
+    if legacy_task_menu and not current_task_menu:
+        legacy_task_menu.name = "각 부서 업무 현황"
+    elif legacy_task_menu and current_task_menu:
+        for role in list(legacy_task_menu.roles):
+            if role not in current_task_menu.roles:
+                current_task_menu.roles.append(role)
+        db.session.delete(legacy_task_menu)
+    db.session.flush()
+
     root = db.session.scalar(select(Department).where(Department.name == "경영사업본부"))
     for name in ("재무운영팀", "인사총무팀", "보안전산팀"):
         department = db.session.scalar(select(Department).where(Department.name == name))
@@ -583,7 +638,7 @@ def seed_reference_data():
 
     menu_specs = [
         ("통합현황", "/", 10),
-        ("업무현황", "/tasks", 20),
+        ("각 부서 업무 현황", "/tasks", 20),
         ("업무등록", "/tasks/new", 30),
         ("일정", "/calendar", 40),
         ("일일회의", "/meetings", 50),
@@ -825,36 +880,21 @@ def create_app(test_config=None):
     def dashboard():
         tasks = db.session.scalars(visible_task_query(current_user).order_by(Task.target_date, Task.id)).all()
 
-        def task_summary(type_name):
-            subset = [task for task in tasks if type_name in task.type_names]
-            active_days = [task.remaining_days for task in subset if task.remaining_days is not None and task.remaining_days >= 0]
-            return {
-                "total": len(subset),
-                "today": sum(1 for task in subset if task.start_date <= date.today() <= task.target_date),
-                "remaining": min(active_days) if active_days else None,
-                "done": sum(1 for task in subset if task.status == "완료"),
-                "delayed": sum(1 for task in subset if task.status == "지연"),
-                "hold": sum(1 for task in subset if task.status == "보류"),
-            }
-
         departments_query = select(Department).where(Department.active.is_(True))
         if current_user.role.data_scope != "all":
             departments_query = departments_query.where(Department.id == current_user.department_id)
         visible_departments = db.session.scalars(departments_query.order_by(Department.id)).all()
-        department_counts = {
-            department.name: sum(1 for task in tasks if task.department_id == department.id)
-            for department in visible_departments
-        }
+        department_summaries = build_department_summaries(visible_departments, tasks)
         board_tasks = [task for task in tasks if not task.dashboard_hidden]
         routine_tasks = [task for task in board_tasks if "루틴" in task.type_names][:12]
         major_tasks = [task for task in board_tasks if "주요" in task.type_names][:12]
         return render_template(
             "dashboard.html",
-            routine=task_summary("루틴"),
-            major=task_summary("주요"),
+            routine=summarize_tasks(tasks, "루틴"),
+            major=summarize_tasks(tasks, "주요"),
             routine_tasks=routine_tasks,
             major_tasks=major_tasks,
-            department_counts=department_counts,
+            department_summaries=department_summaries,
             can_view_all_tasks=current_user.role.data_scope == "all",
         )
 
@@ -899,12 +939,21 @@ def create_app(test_config=None):
         if current_user.role.data_scope != "all":
             departments_query = departments_query.where(Department.id == current_user.department_id)
             employees_query = employees_query.where(Employee.department_id == current_user.department_id)
+        departments = db.session.scalars(departments_query.order_by(Department.name)).all()
+        all_visible_tasks = db.session.scalars(
+            visible_task_query(current_user).order_by(Task.target_date, Task.id)
+        ).all()
+        journal_selectable_ids = {
+            task.id for task in pagination.items if can_write_department(task.department_id)
+        }
         return render_template(
             "tasks.html",
             mode="list",
             pagination=pagination,
-            departments=db.session.scalars(departments_query.order_by(Department.name)).all(),
+            departments=departments,
             employees=db.session.scalars(employees_query.order_by(Employee.name)).all(),
+            department_summaries=build_department_summaries(departments, all_visible_tasks),
+            journal_selectable_ids=journal_selectable_ids,
             can_view_all_tasks=current_user.role.data_scope == "all",
         )
 
@@ -1188,13 +1237,22 @@ def create_app(test_config=None):
             .where(TaskDailyLog.work_date == work_date, or_(Task.assignee_id == employee_id, TaskDailyLog.author_id == employee_id))
             .order_by(TaskDailyLog.created_at)
         ).all()
-        tasks = db.session.scalars(
+        automatic_tasks = db.session.scalars(
             select(Task)
             .join(TaskClassification)
             .where(Task.assignee_id == employee_id, TaskClassification.name.in_(["주요", "일반"]), Task.start_date <= work_date, Task.target_date >= work_date)
             .distinct()
             .order_by(Task.target_date)
         ).all()
+        selected_tasks = db.session.scalars(
+            select(Task)
+            .join(WorkJournalItem, WorkJournalItem.task_id == Task.id)
+            .where(WorkJournalItem.work_date == work_date, WorkJournalItem.employee_id == employee_id)
+            .order_by(Task.target_date, Task.id)
+        ).all()
+        tasks_by_id = {task.id: task for task in automatic_tasks}
+        tasks_by_id.update({task.id: task for task in selected_tasks})
+        tasks = sorted(tasks_by_id.values(), key=lambda task: (task.target_date, task.id))
         employees_query = select(Employee).where(Employee.status == "재직")
         if current_user.role.data_scope == "department":
             employees_query = employees_query.where(Employee.department_id == current_user.department_id)
@@ -1202,6 +1260,59 @@ def create_app(test_config=None):
             employees_query = employees_query.where(Employee.id == current_user.id)
         employees = db.session.scalars(employees_query.order_by(Employee.name)).all()
         return render_template("journals.html", work_date=work_date, employee=employee, employees=employees, tasks=tasks, logs=logs)
+
+    @app.post("/journals/add-tasks")
+    @login_required
+    def journal_add_tasks():
+        task_ids = {int(item) for item in request.form.getlist("task_ids") if item.isdigit()}
+        if not task_ids:
+            flash("업무일지에 담을 업무를 선택해 주세요.", "danger")
+            return redirect(url_for("task_list"))
+        work_date = date.fromisoformat(request.form.get("work_date", date.today().isoformat()))
+        selected_tasks = db.session.scalars(
+            visible_task_query(current_user).where(Task.id.in_(task_ids)).order_by(Task.id)
+        ).all()
+        if len(selected_tasks) != len(task_ids) or any(
+            not can_write_department(task.department_id) for task in selected_tasks
+        ):
+            abort(403)
+        existing = {
+            (task_id, employee_id)
+            for task_id, employee_id in db.session.execute(
+                select(WorkJournalItem.task_id, WorkJournalItem.employee_id).where(
+                    WorkJournalItem.work_date == work_date,
+                    WorkJournalItem.task_id.in_(task_ids),
+                )
+            ).all()
+        }
+        created = 0
+        for task in selected_tasks:
+            key = (task.id, task.assignee_id)
+            if key in existing:
+                continue
+            db.session.add(
+                WorkJournalItem(
+                    task_id=task.id,
+                    work_date=work_date,
+                    employee_id=task.assignee_id,
+                    added_by_id=current_user.id,
+                )
+            )
+            created += 1
+        audit(
+            "WORK_JOURNAL_BULK_ADD",
+            f"work_date:{work_date.isoformat()}",
+            {"requested": len(task_ids), "created": created, "task_ids": sorted(task_ids)},
+        )
+        db.session.commit()
+        flash(
+            f"선택한 업무 {len(task_ids)}건 중 {created}건을 담당자별 {work_date} 업무일지에 담았습니다.",
+            "success",
+        )
+        return_to = request.form.get("return_to", "")
+        if return_to and urlparse(return_to).netloc == "":
+            return redirect(return_to)
+        return redirect(url_for("task_list"))
 
     @app.route("/admin/<section>", methods=["GET", "POST"])
     @admin_required("admin")

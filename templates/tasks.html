@@ -1,7 +1,15 @@
 {% extends "base.html" %}
 {% block content %}
 {% if mode == 'list' %}
-<div class="page-heading"><div><span class="eyebrow">TASKS</span><h1>업무 현황</h1><p>{% if can_view_all_tasks %}전체 부서 업무를 조회하며 등록·수정은 소속 부서 범위로 제한됩니다.{% else %}소속 부서 업무만 조회·등록·수정할 수 있습니다.{% endif %}</p></div><a class="button primary" href="{{ url_for('task_new') }}">+ 업무 등록</a></div>
+<div class="page-heading"><div><span class="eyebrow">DEPARTMENT TASKS</span><h1>각 부서 업무 현황</h1><p>{% if can_view_all_tasks %}전체 부서 업무를 조회하며 등록·수정은 소속 부서 범위로 제한됩니다.{% else %}소속 부서 업무만 조회·등록·수정할 수 있습니다.{% endif %}</p></div><a class="button primary" href="{{ url_for('task_new') }}">+ 업무 등록</a></div>
+<section class="department-summary-grid">
+  {% for item in department_summaries %}
+  <a class="department-summary-card {{ 'active' if request.args.get('department_id') == item.department.id|string }}" href="{{ url_for('task_list', department_id=item.department.id) }}">
+    <span>{{ item.department.name }}</span>
+    <div class="department-summary-counts"><strong>루틴업무 <b>{{ item.routine.total }}</b></strong><strong>주요업무 <b>{{ item.major.total }}</b></strong><strong>진행중 <b>{{ item.ongoing }}</b></strong></div>
+  </a>
+  {% endfor %}
+</section>
 <section class="panel filter-panel">
   <form method="get" class="filter-grid">
     <label>검색<input type="search" name="q" value="{{ request.args.get('q','') }}" placeholder="제목 또는 내용"></label>
@@ -15,11 +23,16 @@
   </form>
 </section>
 <section class="panel">
-  <div class="panel-head"><div><h2>업무 목록</h2><p>총 {{ pagination.total }}건</p></div><div class="button-row"><a class="button ghost small" href="{{ url_for('task_excel_template') }}">엑셀 템플릿</a><button class="button ghost small" type="button" data-dialog="excelUpload">엑셀 업로드</button></div></div>
-  <div class="table-wrap"><table><thead><tr><th>업무</th><th>분류</th><th>부서/담당자</th><th>기간</th><th>진행률</th><th>상태</th></tr></thead><tbody>
-    {% for task in pagination.items %}<tr class="status-row {{ task.status_class }}"><td><a class="task-title" href="{{ url_for('task_detail', task_id=task.id) }}">{{ task.title }}</a><small>{{ (task.content or '')|truncate(42) }}</small></td><td>{% for name in task.type_names %}<span class="tag">{{ name }}</span>{% endfor %}{% if task.source_frequency %}<small>{{ task.source_frequency }}</small>{% endif %}</td><td>{{ task.department.name }}<small>{{ task.display_assignees }}</small></td><td>{{ task.start_date.strftime('%y.%m.%d') }} ~ {{ task.target_date.strftime('%y.%m.%d') }}<small>{{ '완료' if task.remaining_days is none else ('D' ~ ('+' if task.remaining_days < 0 else '-') ~ (task.remaining_days|abs)) }}</small></td><td><div class="progress"><span style="width:{{ task.progress }}%"></span></div><small>{{ task.progress }}%</small></td><td><span class="status {{ task.status_class }}">{{ task.status }}</span></td></tr>
-    {% else %}<tr><td colspan="6" class="empty">조회된 업무가 없습니다.</td></tr>{% endfor %}
-  </tbody></table></div>
+  <div class="panel-head"><div><h2>각 부서 업무 목록</h2><p>총 {{ pagination.total }}건 · 체크한 업무는 담당자별 오늘 업무일지에 담깁니다.</p></div><div class="button-row"><button class="button primary small" type="submit" form="bulkJournalForm" data-bulk-journal disabled>업무일지에 일괄 담기</button><a class="button ghost small" href="{{ url_for('task_excel_template') }}">엑셀 템플릿</a><button class="button ghost small" type="button" data-dialog="excelUpload">엑셀 업로드</button></div></div>
+  <form id="bulkJournalForm" method="post" action="{{ url_for('journal_add_tasks') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="work_date" value="{{ today.isoformat() }}">
+    <input type="hidden" name="return_to" value="{{ request.full_path }}">
+    <div class="table-wrap"><table><thead><tr><th class="bulk-select"><input type="checkbox" data-check-all aria-label="현재 페이지 전체 선택"></th><th>부서</th><th>업무</th><th>분류</th><th>담당자</th><th>기간</th><th>진행률</th><th>상태</th></tr></thead><tbody>
+      {% for task in pagination.items %}<tr class="status-row {{ task.status_class }}"><td class="bulk-select"><input type="checkbox" name="task_ids" value="{{ task.id }}" data-task-check aria-label="{{ task.title }} 선택" {{ 'disabled' if task.id not in journal_selectable_ids }} title="{{ '' if task.id in journal_selectable_ids else '소속 부서 업무만 업무일지에 담을 수 있습니다.' }}"></td><td><strong>{{ task.department.name }}</strong></td><td><a class="task-title" href="{{ url_for('task_detail', task_id=task.id) }}">{{ task.title }}</a><small>{{ (task.content or '')|truncate(42) }}</small></td><td>{% for name in task.type_names %}<span class="tag">{{ name }}</span>{% endfor %}{% if task.source_frequency %}<small>{{ task.source_frequency }}</small>{% endif %}</td><td>{{ task.display_assignees }}</td><td>{{ task.start_date.strftime('%y.%m.%d') }} ~ {{ task.target_date.strftime('%y.%m.%d') }}<small>{{ '완료' if task.remaining_days is none else ('D' ~ ('+' if task.remaining_days < 0 else '-') ~ (task.remaining_days|abs)) }}</small></td><td><div class="progress"><span style="width:{{ task.progress }}%"></span></div><small>{{ task.progress }}%</small></td><td><span class="status {{ task.status_class }}">{{ task.status }}</span></td></tr>
+      {% else %}<tr><td colspan="8" class="empty">조회된 업무가 없습니다.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </form>
   {% if pagination.pages > 1 %}<nav class="pagination">{% for page in pagination.iter_pages() %}{% if page %}<a class="{{ 'active' if page == pagination.page }}" href="{{ url_for('task_list', page=page, q=request.args.get('q'), department_id=request.args.get('department_id'), assignee_id=request.args.get('assignee_id'), task_type=request.args.get('task_type'), status=request.args.get('status'), start=request.args.get('start'), end=request.args.get('end')) }}">{{ page }}</a>{% else %}<span>…</span>{% endif %}{% endfor %}</nav>{% endif %}
 </section>
 <dialog id="excelUpload"><form method="post" action="{{ url_for('task_excel_upload') }}" enctype="multipart/form-data" class="dialog-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><div class="dialog-head"><h2>엑셀 일괄 등록</h2><button type="button" data-close>×</button></div><p>제공된 템플릿의 열 이름을 변경하지 마세요. 파일 원본도 PostgreSQL에 보관됩니다.</p><label>엑셀 파일<input type="file" name="file" accept=".xlsx" required></label><button class="button primary wide" type="submit">등록</button></form></dialog>

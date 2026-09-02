@@ -11,7 +11,7 @@
     <div class="summary-title"><span>{{ label }}</span><strong>{{ item.total }}건</strong></div>
     <div class="metric-row">
       <div><small>오늘</small><b>{{ item.today }}</b></div>
-      <div><small>최근 기한</small><b>{{ 'D-' ~ item.remaining if item.remaining is not none and item.remaining > 0 else ('D-DAY' if item.remaining == 0 else '-') }}</b></div>
+      <div><small>진행중</small><b>{{ item.ongoing }}</b></div>
       <div><small>완료</small><b>{{ item.done }}</b></div>
       <div><small>지연</small><b class="danger-text">{{ item.delayed }}</b></div>
       <div><small>보류</small><b>{{ item.hold }}</b></div>
@@ -26,15 +26,16 @@
     <div class="panel-head"><div><h2>{{ title }}</h2><p>일간·지속 업무를 제외한 열람 권한 범위의 업무</p></div><a href="{{ url_for('task_list', task_type=task_type) }}">전체보기 →</a></div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>업무내용</th><th>남은기간</th><th>담당자</th></tr></thead>
+        <thead><tr><th>부서</th><th>업무내용</th><th>남은기간</th><th>담당자</th></tr></thead>
         <tbody>
         {% for task in board_tasks %}
           <tr class="status-row {{ task.status_class }}">
+            <td><strong>{{ task.department.name }}</strong></td>
             <td><a class="task-title" href="{{ url_for('task_detail', task_id=task.id) }}">{{ task.title }}</a><small>{{ (task.content or '상세 내용 없음')|truncate(52) }}</small></td>
             <td><strong>{{ task.remaining_label }}</strong></td>
             <td>{{ task.display_assignees }}</td>
           </tr>
-        {% else %}<tr><td colspan="3" class="empty">표시할 {{ task_type }} 업무가 없습니다.</td></tr>{% endfor %}
+        {% else %}<tr><td colspan="4" class="empty">표시할 {{ task_type }} 업무가 없습니다.</td></tr>{% endfor %}
         </tbody>
       </table>
     </div>
@@ -43,10 +44,13 @@
 </section>
 
 <section class="panel">
-  <div class="panel-head"><div><h2>팀별 업무 현황</h2><p>{% if can_view_all_tasks %}부서장·팀장 이상 권한으로 타 팀 업무를 조회할 수 있습니다.{% else %}소속 부서 업무만 표시되며 타 팀 업무와 건수는 노출되지 않습니다.{% endif %}</p></div><div class="segmented"><button class="active" data-view="board">게시판형</button><a href="{{ url_for('task_calendar') }}">달력형</a></div></div>
+  <div class="panel-head"><div><h2>각 부서 업무 현황</h2><p>{% if can_view_all_tasks %}부서장·팀장 이상 권한으로 타 팀 업무를 조회할 수 있습니다.{% else %}소속 부서 업무만 표시되며 타 팀 업무와 건수는 노출되지 않습니다.{% endif %}</p></div><div class="segmented"><button class="active" data-view="board">게시판형</button><a href="{{ url_for('task_calendar') }}">달력형</a></div></div>
   <div class="department-grid">
-    {% for name, count in department_counts.items() %}
-    <a href="{{ url_for('task_list', department_id='') }}" class="department-card"><span>{{ name }}</span><strong>{{ count }}</strong><small>건의 업무</small></a>
+    {% for item in department_summaries %}
+    <a href="{{ url_for('task_list', department_id=item.department.id) }}" class="department-card department-summary-card">
+      <span>{{ item.department.name }}</span><strong>{{ item.total }}</strong><small>전체 업무</small>
+      <div class="department-metrics"><b>루틴 {{ item.routine.total }}</b><b>주요 {{ item.major.total }}</b><b>진행중 {{ item.ongoing }}</b></div>
+    </a>
     {% endfor %}
   </div>
 </section>
