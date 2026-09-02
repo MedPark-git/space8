@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ '비밀번호 변경' if mode == 'change' else '로그인' }} · MedPark{% endblock %}
+{% block body_class %}auth-page{% endblock %}
+{% block content %}
+<section class="auth-card">
+  <div class="auth-intro">
+    <span class="eyebrow">MEDPARK BUSINESS MANAGEMENT</span>
+    <h1>경영사업본부<br>루틴·주요업무 현황</h1>
+    <p>업무 등록부터 일정, 일일회의 자료와 업무일지까지 한 곳에서 관리합니다.</p>
+    <div class="security-note">임직원 전용 시스템 · 모든 접속 및 변경 이력 기록</div>
+  </div>
+  <div class="auth-form-wrap">
+    {% if mode == 'change' %}
+      <span class="eyebrow">FIRST LOGIN</span>
+      <h2>비밀번호 변경</h2>
+      <p>안전한 사용을 위해 최초 로그인 비밀번호를 변경해 주세요.</p>
+      <form method="post" class="stack-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>현재 비밀번호<input type="password" name="current_password" required autocomplete="current-password"></label>
+        <label>새 비밀번호<input type="password" name="new_password" required minlength="10" autocomplete="new-password"></label>
+        <label>새 비밀번호 확인<input type="password" name="confirm_password" required minlength="10" autocomplete="new-password"></label>
+        <small>영문과 숫자를 포함하여 10자 이상</small>
+        <button class="button primary wide" type="submit">비밀번호 변경</button>
+      </form>
+    {% else %}
+      <span class="eyebrow">EMPLOYEE LOGIN</span>
+      <h2>로그인</h2>
+      <p>관리자가 등록한 임직원 계정으로 로그인해 주세요.</p>
+      <form method="post" class="stack-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>로그인 ID<input type="text" name="login_id" required autocomplete="username" autofocus></label>
+        <label>비밀번호<input type="password" name="password" required autocomplete="current-password"></label>
+        <button class="button primary wide" type="submit">로그인</button>
+      </form>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
