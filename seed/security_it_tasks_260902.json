@@ -1,0 +1,1819 @@
+{
+  "expected_count": 116,
+  "tasks": [
+    {
+      "source_ref": "security-it-260902:2ce3ee22f242f95ed44f7851",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        4
+      ],
+      "category": "DRM",
+      "detail": "모니터링",
+      "content": "감사 이력내역 확인(문서 복호화, 문서 격리 이력, 인쇄 기록), 라이선스 관리",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "일"
+    },
+    {
+      "source_ref": "security-it-260902:d060cdadfe4438a6a6d3c139",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        5
+      ],
+      "category": "DRM",
+      "detail": "신규 입사자 및 퇴사자",
+      "content": "아이디 생성 및 퇴직자 처리",
+      "assignees": [
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:cb5b03eb2d9dcafa8547f32c",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        6
+      ],
+      "category": "DRM",
+      "detail": "워터마크",
+      "content": "노워터마크 및 과제정책 변경",
+      "assignees": [
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:42dc9559b20ab7bb1aea1342",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        7
+      ],
+      "category": "DRM",
+      "detail": "라이선스",
+      "content": "라이선스 계약 확인 및 관리",
+      "assignees": [
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:aed08b4829d03a5865920cc8",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        8
+      ],
+      "category": "DRM",
+      "detail": "보안정책",
+      "content": "정책 설정 및 관리, 관리(승인권자, 요청내역, 중앙관리자 관리), 결재 위임, 관리자 기록",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:f6e5bc5511126e239ba2f09b",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        9
+      ],
+      "category": "DRM",
+      "detail": "정기점검",
+      "content": "분기별 점검보고서 검토 및 확인",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "분기별"
+    },
+    {
+      "source_ref": "security-it-260902:d54e325b618c6149216b64f0",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        10
+      ],
+      "category": "DRM",
+      "detail": "시스템 점검",
+      "content": "DRM 구축형 서버에 SSH로 접속하여 서버 상태 점검",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "월2회"
+    },
+    {
+      "source_ref": "security-it-260902:6f1c26df70a68598969aada0",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        11
+      ],
+      "category": "백신",
+      "detail": "모니터링",
+      "content": "임직원 데스크탑PC, 안티바이러스 탐지, 방화벽 탐지 모니터링, 라이선스 관리",
+      "assignees": [
+        "김영재"
+      ],
+      "frequency": "일"
+    },
+    {
+      "source_ref": "security-it-260902:6917649cbf22d438115c47bc",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        12
+      ],
+      "category": "백신",
+      "detail": "신규 입사자 및 퇴사자",
+      "content": "아이디 생성 및 퇴직자 삭제, PC 관리 목록 삭제",
+      "assignees": [
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:5d72ef01a175a4f8e76c547c",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        13
+      ],
+      "category": "백신",
+      "detail": "정책",
+      "content": "기본정책(AntiVirus 등), 장치제어 허용, USB 매체제어 등록, 수정",
+      "assignees": [
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:15779829875e6a7686a5cc3f",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        14
+      ],
+      "category": "백신",
+      "detail": "매체제어 예외요청",
+      "content": "데스크탑PC나 노트북으로 동영상이나 사진파일 이동시 임시 예외 허용 요청 진행",
+      "assignees": [
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:e1635e88da2804dbd7e27cf1",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        15
+      ],
+      "category": "백신",
+      "detail": "시스템 점검",
+      "content": "ESET 서버PC(윈도우10) 보안업데이트 및 점검",
+      "assignees": [
+        "김영재"
+      ],
+      "frequency": "월2회"
+    },
+    {
+      "source_ref": "security-it-260902:546d042124faad09147d443a",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        16
+      ],
+      "category": "백신",
+      "detail": "로그 조회",
+      "content": "보안점검 시 업무용PC 로그 조회(HIPS, 필터링된 웹 사이트, 장치제어)",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:3a1ea56ad47c04f90ca3d34e",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        17
+      ],
+      "category": "방화벽",
+      "detail": "모니터링",
+      "content": "부산사이트(606호, 1공장), 서울사이트(809호)모니터링",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "주1회"
+    },
+    {
+      "source_ref": "security-it-260902:5e53b2109db60c872658de29",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        18
+      ],
+      "category": "방화벽",
+      "detail": "정책",
+      "content": "시스템, 네트워크, VPN, 보안정책, 로그 점검등 정책 등록 및 수정",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "주1회"
+    },
+    {
+      "source_ref": "security-it-260902:64fae341b0baf52c7812a7b4",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        19
+      ],
+      "category": "방화벽",
+      "detail": "SSL-VPN",
+      "content": "VPN 사용자 관리(등록, 삭제)",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:076dd6b398e5eaf60e0a872f",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        20
+      ],
+      "category": "방화벽",
+      "detail": "예외 처리 관리",
+      "content": "WebMail 및 MS Sharepoint 예외 처리 관리",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:57c4dc7a23c51c26c169f222",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        21
+      ],
+      "category": "방화벽",
+      "detail": "라이선스",
+      "content": "임대 계약 및 라이선스",
+      "assignees": [
+        "담당자 미정"
+      ],
+      "frequency": "월1회"
+    },
+    {
+      "source_ref": "security-it-260902:fe345bd3f2f98e3d82b010b1",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        22
+      ],
+      "category": "방화벽",
+      "detail": "정기점검",
+      "content": "월별 점검보고서 검토 및 확인",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "분기별"
+    },
+    {
+      "source_ref": "security-it-260902:9c34d1080905dbd4e42d0cfa",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        23
+      ],
+      "category": "방화벽",
+      "detail": "장애복구",
+      "content": "네트워크 장애확인 및 복구",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:463a76331c56b3c5d51bbfbc",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        24
+      ],
+      "category": "아마란스",
+      "detail": "ERP 모듈 관리",
+      "content": "ERP 모듈 권한 부여 및 해제",
+      "assignees": [
+        "권이지",
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:36c3ff9c03f542a34b5afccc",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        25
+      ],
+      "category": "아마란스",
+      "detail": "구매",
+      "content": "모듈 구매 진행",
+      "assignees": [
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:41b4f24cebfe39186c96a5d5",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        26
+      ],
+      "category": "아마란스",
+      "detail": "라이선스",
+      "content": "전문가 라이선스 확인 및 관리",
+      "assignees": [
+        "권민기"
+      ],
+      "frequency": "월1회"
+    },
+    {
+      "source_ref": "security-it-260902:ac7748a98caff3492ac91f00",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        27
+      ],
+      "category": "아마란스",
+      "detail": "신규 입사자 및 퇴사자",
+      "content": "아이디 생성 및 퇴직자 처리",
+      "assignees": [
+        "권이지",
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:38b4148a424d43c4cb5e6186",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        28
+      ],
+      "category": "아마란스",
+      "detail": "대화방",
+      "content": "프로젝트 대화방 생성 및 구성원 수정",
+      "assignees": [
+        "권이지",
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:e6964afb5fbd76cb6cbc4fe6",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        29
+      ],
+      "category": "아마란스",
+      "detail": "대화방",
+      "content": "프로젝트가 종료된 대화방 삭제 진행(더존측 공문)",
+      "assignees": [
+        "권이지",
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:4153c2e2becb0e31f35762e6",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        30
+      ],
+      "category": "아마란스",
+      "detail": "대화방",
+      "content": "대화방 현황 리스트 업데이트",
+      "assignees": [
+        "김영재"
+      ],
+      "frequency": "주1회"
+    },
+    {
+      "source_ref": "security-it-260902:d7f7738cf82f1417646ab1b5",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        31
+      ],
+      "category": "아마란스",
+      "detail": "관리",
+      "content": "시스템설정, 일정관리, 업무관리, 확장기능 등 메뉴 관리",
+      "assignees": [
+        "권이지",
+        "김영재"
+      ],
+      "frequency": "월2회"
+    },
+    {
+      "source_ref": "security-it-260902:bd4373a29d1a3ed2fb38f42a",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        32
+      ],
+      "category": "아마란스",
+      "detail": "라이선스",
+      "content": "UC 라이선스 확인 및 관리",
+      "assignees": [
+        "권이지",
+        "김영재"
+      ],
+      "frequency": "월1회"
+    },
+    {
+      "source_ref": "security-it-260902:c7ad9dda5b9c985d332af644",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        33
+      ],
+      "category": "NAS",
+      "detail": "신규 입사자 및 퇴사자",
+      "content": "아이디 생성 및 퇴직자 처리",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:4add01d22df7d7be4834f615",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        34
+      ],
+      "category": "NAS",
+      "detail": "폴더 권한 부여 및 삭제",
+      "content": "각 부서에서 사용할 폴더 권한 부여 및 삭제(서비스허용 요청서)",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:989cbeaf3d23ed70256da8a1",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        35
+      ],
+      "category": "NAS",
+      "detail": "퇴직자",
+      "content": "퇴직자 데스크탑PC(Bizbox, Outlook 등)와 개인폴더 데이터 백업 진행",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:49bfcffb8b9c5819c0f70686",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        36
+      ],
+      "category": "NAS",
+      "detail": "서비스 권한 부여",
+      "content": "SMB(네트워크 공유) 권한 부여",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:1244b87e76226adbc9ecce96",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        37
+      ],
+      "category": "NAS",
+      "detail": "데이터 백업 모니터링",
+      "content": "데이터 백업 현황 모니터링",
+      "assignees": [
+        "김영재"
+      ],
+      "frequency": "주1회"
+    },
+    {
+      "source_ref": "security-it-260902:0890b18d3b95e3b7f7cf325c",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        38
+      ],
+      "category": "NAS",
+      "detail": "시스템 점검",
+      "content": "NAS 서버들 상태 점검 및 OS 업데이트 진행",
+      "assignees": [
+        "김영재"
+      ],
+      "frequency": "월2회"
+    },
+    {
+      "source_ref": "security-it-260902:d869d6b1766882d399d238bc",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        39
+      ],
+      "category": "메일",
+      "detail": "신규 입사자 및 퇴사자",
+      "content": "각 부서별로 사용하는 메일 계정 아웃룩 등록 및 삭제(서비스허용 요청서)",
+      "assignees": [
+        "권이지",
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:fdcbb48b1e3599c6a9395da2",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        40
+      ],
+      "category": "메일",
+      "detail": "메일 계정 등록",
+      "content": "메일 계정 등록(Gmail 계정 생성 후 Daum에서 카카오아이디로 생성)",
+      "assignees": [
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:e8e1b301b8cb597112e979f5",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        41
+      ],
+      "category": "메일",
+      "detail": "메일 계정 등록",
+      "content": "medpark.net 메일 계정 등록은 비즈니스 구글메일에서 등록",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:13b253c1aa3cec113e44226c",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        42
+      ],
+      "category": "메일",
+      "detail": "메일 점검",
+      "content": "웹메일로 접속하여 스팸메일과 메일 용량 확인",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "월1회"
+    },
+    {
+      "source_ref": "security-it-260902:bd4591da382be7c5c2ea506a",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        43
+      ],
+      "category": "메일",
+      "detail": "메일 백업",
+      "content": "웹메일로 접속하여 메일들 백업(용량 초과 가능성이 있는 메일 계정)",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "월1회"
+    },
+    {
+      "source_ref": "security-it-260902:0fba1a04357ad15c52164922",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        44
+      ],
+      "category": "메일",
+      "detail": "Outlook",
+      "content": "퇴직자 Outlook 데이터파일 백업 진행",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:a14a1014f35bf3b87f25f640",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        45
+      ],
+      "category": "정보화 기기",
+      "detail": "정보화기기 조사",
+      "content": "부산사이트 정보화기기",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "월1회"
+    },
+    {
+      "source_ref": "security-it-260902:b647adbd6e1ffc5c49060db5",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        46
+      ],
+      "category": "정보화 기기",
+      "detail": "정보화기기 조사",
+      "content": "서울사이트 정보화기기",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "월1회"
+    },
+    {
+      "source_ref": "security-it-260902:ea47c31b7b44e56373288e99",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        47
+      ],
+      "category": "정보화 기기",
+      "detail": "기술지원",
+      "content": "부산사이트 임직원 정보화기기 기술 지원",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:a03a826ca13871a60e3b2e1b",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        48
+      ],
+      "category": "정보화 기기",
+      "detail": "기술지원",
+      "content": "서울사이트 임직원 정보화기기 기술 지원",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:ba1f75f40bd22dc5d89db3bc",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        49
+      ],
+      "category": "정보화 기기",
+      "detail": "네트워크",
+      "content": "회사 네트워크 구성도 작성 및 업데이트",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "변경 시"
+    },
+    {
+      "source_ref": "security-it-260902:523c87278084da03e89a6509",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        50
+      ],
+      "category": "정보화 기기",
+      "detail": "구매요청서",
+      "content": "각 부서에서 제출한 구매요청서 확인하여 데스크탑PC나 노트북 재고 확인 후 구매 진행",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:1734f6af4010eb5165ad544f",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        51
+      ],
+      "category": "정보화 기기",
+      "detail": "비품 구매",
+      "content": "분기별로 전산 비품 구매 진행",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "분기별"
+    },
+    {
+      "source_ref": "security-it-260902:9e2fb12af03b7eb3cbc9f536",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        52
+      ],
+      "category": "정보화 기기",
+      "detail": "업무용PC & 노트북",
+      "content": "업무용 PC & 노트북 OS 재설치 후 초기 셋팅 진행",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:ea43fcda2e5f10a1ab17e1f1",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        53
+      ],
+      "category": "정보화 기기",
+      "detail": "업무용PC & 노트북",
+      "content": "업무용 PC & 노트북 정보화기기 인수인계 작성 후 사인(신규, 퇴사자, 임직원 교체)",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:2d224ccd36666ad1dc9ad5c0",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        54
+      ],
+      "category": "정보화 기기",
+      "detail": "소프트웨어",
+      "content": "업무용 및 보안 소프트웨어 임직원PC 설치",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:217601cbb910fbbb7254b748",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        55
+      ],
+      "category": "보안업무",
+      "detail": "보안서약서",
+      "content": "매분기마다 보안서약서 전달 및 작성, 취합 후 스캔 및 파일철",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "분기별"
+    },
+    {
+      "source_ref": "security-it-260902:935b2269618feba6181e838a",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        56
+      ],
+      "category": "보안업무",
+      "detail": "보안점검",
+      "content": "년 4회 분기별로 보안점검 진행(데스크탑, 노트북등) 전, 후 보고서 상신",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "분기별"
+    },
+    {
+      "source_ref": "security-it-260902:0485cc40055fe7cd016493ea",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        57
+      ],
+      "category": "보안업무",
+      "detail": "불시 보안점검",
+      "content": "불시 보안점검",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "불시"
+    },
+    {
+      "source_ref": "security-it-260902:2af2962b65482d3bfcd6cd86",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        58
+      ],
+      "category": "보안업무",
+      "detail": "보안규정",
+      "content": "보안규정 수정 및 생성",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:2305044253384cf373c94239",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        59
+      ],
+      "category": "보안업무",
+      "detail": "보안서식",
+      "content": "보안전산 관련 서식 수정 및 생성",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:818c1bb0bac9e52c6f6566a0",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        60
+      ],
+      "category": "보안업무",
+      "detail": "보안교육",
+      "content": "년 1회 이상 교육 진행(법정 의무 교육), 신규입사자 보안교육",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "년1회"
+    },
+    {
+      "source_ref": "security-it-260902:c7068cceac52f00a3e04d538",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902 / 업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        61,
+        4
+      ],
+      "category": "출입 및 근태관리 시스템",
+      "detail": "신규 입사자 및 퇴사자",
+      "content": "사원증(지문) 등록 및 정보(사원증, 지문) 삭제",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:30d5afaf391bf905ee198d6e",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902 / 업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        62,
+        5
+      ],
+      "category": "출입 및 근태관리 시스템",
+      "detail": "에스원(세콤)",
+      "content": "에스원 기기정보 및 IP 상태 확인 및 데이터 백업 진행",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "월1회"
+    },
+    {
+      "source_ref": "security-it-260902:f7e0200477919693a5a337ac",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902 / 업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        63,
+        6
+      ],
+      "category": "출입 및 근태관리 시스템",
+      "detail": "출입관리시스템",
+      "content": "세콤매니저(출입관리) 프로그램 점검 및 데이터 백업 진행",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "주1회"
+    },
+    {
+      "source_ref": "security-it-260902:752dbe20fab8c1a31677aa9c",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902 / 업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        64,
+        7
+      ],
+      "category": "출입 및 근태관리 시스템",
+      "detail": "근태관리시스템",
+      "content": "세콤매니저(근태식당) 프로그램 점검 및 데이터 백업 진행",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "주1회"
+    },
+    {
+      "source_ref": "security-it-260902:cf5c8851d3613413f2776080",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902 / 업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        65,
+        8
+      ],
+      "category": "출입 및 근태관리 시스템",
+      "detail": "근태 확인",
+      "content": "CCTV 및 출입관리시스템으로 근태 확인 지원",
+      "assignees": [
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:e8cc369dbda661724fad6d50",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902 / 업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        66,
+        9
+      ],
+      "category": "출입 및 근태관리 시스템",
+      "detail": "사원증",
+      "content": "에스원 사원증 신청(사원증에 필요한 사진, 영문이름 취합 후 홈페이지에서 신청)",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "월1회"
+    },
+    {
+      "source_ref": "security-it-260902:b470a01a545642d01b97287d",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902 / 업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        67,
+        10
+      ],
+      "category": "출입 및 근태관리 시스템",
+      "detail": "방문증",
+      "content": "방문증 반출입대장 관리",
+      "assignees": [
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:9de3ca52869a6efa5dd268ee",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902 / 업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        68,
+        11
+      ],
+      "category": "출입 및 근태관리 시스템",
+      "detail": "시스템 점검",
+      "content": "출입 및 근태관리시스템 PC 상태 점검 및 OS 업데이트 진행",
+      "assignees": [
+        "김영재"
+      ],
+      "frequency": "월2회"
+    },
+    {
+      "source_ref": "security-it-260902:1579ee51d22955bddaa28947",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        69
+      ],
+      "category": "전자결재",
+      "detail": "시스템 점검",
+      "content": "전자결재 시스템 점검(옵션 등등)",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "주1회"
+    },
+    {
+      "source_ref": "security-it-260902:873b875c3df72a3763715bd2",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        70
+      ],
+      "category": "전자결재",
+      "detail": "결재프로세스관리",
+      "content": "전자결재 프로세스 관리",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "주1회"
+    },
+    {
+      "source_ref": "security-it-260902:bf99eac8409a5cd96d71bd2a",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        71
+      ],
+      "category": "전자결재",
+      "detail": "결재양식관리",
+      "content": "전자결재 문서 양식 수정 진행",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "주1회"
+    },
+    {
+      "source_ref": "security-it-260902:4662f25b8b581e53d4fe02aa",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        72
+      ],
+      "category": "전자결재",
+      "detail": "결재문서관리",
+      "content": "전자결재 결재문서 규칙(제목, 결재라인, 내용 등) 수정 요청",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:3cf3d81ca1a93db76724233c",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        73
+      ],
+      "category": "도메인",
+      "detail": "기간 연장",
+      "content": "도메인 연장 진행(호스팅케이알)",
+      "assignees": [
+        "권민기"
+      ],
+      "frequency": "월1회"
+    },
+    {
+      "source_ref": "security-it-260902:d33a3ec6ca7d9ee84e27b279",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        74
+      ],
+      "category": "도메인",
+      "detail": "기간 연장",
+      "content": "홈페이지(호스팅케이알) 1년 갱신 진행",
+      "assignees": [
+        "권민기"
+      ],
+      "frequency": "월1회"
+    },
+    {
+      "source_ref": "security-it-260902:52658164a4eb1cb0cb31a8b1",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        75
+      ],
+      "category": "도메인",
+      "detail": "관리",
+      "content": "DNS 설정 및 관리",
+      "assignees": [
+        "권민기"
+      ],
+      "frequency": "월1회"
+    },
+    {
+      "source_ref": "security-it-260902:c6773a34eec3a8da09ed6682",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        76
+      ],
+      "category": "도메인",
+      "detail": "구매 대행",
+      "content": "구매 대행 진행 medpark.com 모니터링",
+      "assignees": [
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:cb091a33cbfe6691e4e11995",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        77
+      ],
+      "category": "소프트웨어",
+      "detail": "라이선스",
+      "content": "년 갱신 라이선스 관리 및 계약 진행",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "월1회"
+    },
+    {
+      "source_ref": "security-it-260902:bfd9a371681a0eb511a55978",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        78
+      ],
+      "category": "소프트웨어",
+      "detail": "라이선스",
+      "content": "신규 구입할 소프트웨어 견적 지원",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:76e0d70c3fd6222cd03f1799",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        79
+      ],
+      "category": "관리대장",
+      "detail": "정보화기기 PC",
+      "content": "서울 및 부산사이트 정보화기기 PC, 노트북 현황",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "분기별"
+    },
+    {
+      "source_ref": "security-it-260902:b69c78dd9744f2ff756f4756",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        80
+      ],
+      "category": "관리대장",
+      "detail": "소프트웨어",
+      "content": "서울 및 부산사이트 소프트웨어 사용 현황",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "분기별"
+    },
+    {
+      "source_ref": "security-it-260902:e064b8eb26ba1547c513b418",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        81
+      ],
+      "category": "관리대장",
+      "detail": "정보화기기 반출입",
+      "content": "서울 및 부산사이트 정보화기기 PC, 노트북 반출입 현황 작성",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "분기별"
+    },
+    {
+      "source_ref": "security-it-260902:f3d09eb19befa588cc2f95c1",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        82
+      ],
+      "category": "관리대장",
+      "detail": "공동인증서 반출입",
+      "content": "서울 및 부산사이트 정보화기기 PC, 노트북 반출입 현황 작성",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "분기별"
+    },
+    {
+      "source_ref": "security-it-260902:674ae2f27867cdf44c4450bd",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        83
+      ],
+      "category": "관리대장",
+      "detail": "휴대용 저장매체",
+      "content": "서울 및 부산사이트 휴대용 저장매체 반출입 현황 작성",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "분기별"
+    },
+    {
+      "source_ref": "security-it-260902:f6272ac24e2956fba6a7577e",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        84
+      ],
+      "category": "업무대화방",
+      "detail": "카카오톡 팀채팅방",
+      "content": "팀채팅방 현황 리스트 업데이트",
+      "assignees": [
+        "권민기"
+      ],
+      "frequency": "주1회"
+    },
+    {
+      "source_ref": "security-it-260902:de5d900b64d80d147c54de9e",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        85
+      ],
+      "category": "업무대화방",
+      "detail": "카카오톡 팀채팅방",
+      "content": "팀채팅방 생성 및 인원 조정",
+      "assignees": [
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:e9db3bde19c84e9f347e096e",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        86
+      ],
+      "category": "매뉴얼",
+      "detail": "매뉴얼 생성 및 수정",
+      "content": "신규입사자 보안전산 교육",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "월1회"
+    },
+    {
+      "source_ref": "security-it-260902:90e359a1bdea687e7d31a8f7",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        87
+      ],
+      "category": "매뉴얼",
+      "detail": "매뉴얼 생성 및 수정",
+      "content": "전자결재 교육",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "월1회"
+    },
+    {
+      "source_ref": "security-it-260902:ccb9fa50045fc4582777cde1",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        88
+      ],
+      "category": "매뉴얼",
+      "detail": "매뉴얼 생성 및 수정",
+      "content": "근태관리 교육",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "월1회"
+    },
+    {
+      "source_ref": "security-it-260902:390ad4458b4d266d467f7509",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        89
+      ],
+      "category": "매뉴얼",
+      "detail": "매뉴얼 생성 및 수정",
+      "content": "기타 보안관련 매뉴얼 작성",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "월1회"
+    },
+    {
+      "source_ref": "security-it-260902:29bd344447a348215f407c50",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        90
+      ],
+      "category": "지원",
+      "detail": "IT HelpDesk",
+      "content": "당사 IT(정보화기기, 그룹웨어, ERP, 대화방 등등) HelpDesk 지원",
+      "assignees": [
+        "김영재",
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:e4e6bb7245e2a9d519c1fbfd",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        91
+      ],
+      "category": "보안전산 고도화",
+      "detail": "신규 도입",
+      "content": "DLP 도입(지원사업-기술유출방지시스템 구축)",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:dac5393e406d399a10869114",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산_260902",
+      "source_rows": [
+        92
+      ],
+      "category": "보안전산 고도화",
+      "detail": "신규 도입",
+      "content": "통합PC관리 솔루션",
+      "assignees": [
+        "권민기",
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:758009062818908f7615cf03",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        12
+      ],
+      "category": "인사 총무",
+      "detail": "근태관리시스템",
+      "content": "그룹웨어와 근태관리시스템 연동 시 필요 임직원 정보 등록",
+      "assignees": [
+        "김영재"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:382d5caedb57a7eb6d10e189",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        13
+      ],
+      "category": "인사 총무",
+      "detail": "그룹웨어 (근태관리)",
+      "content": "임직원 연차관리(조회, 생성, 확정)",
+      "assignees": [
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:92ae7cd406d0675502ac86a8",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        14
+      ],
+      "category": "인사 총무",
+      "detail": "그룹웨어 (근태관리)",
+      "content": "근태내역관리",
+      "assignees": [
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:5b9037a308526b58dc67629f",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        15
+      ],
+      "category": "인사 총무",
+      "detail": "그룹웨어 (근태관리)",
+      "content": "근태 설정 및 출퇴근관리 설정",
+      "assignees": [
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:d33ba526e0150f5ea98fa98c",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        16
+      ],
+      "category": "인사 총무",
+      "detail": "인원일보",
+      "content": "인원일보 작성 후 보고",
+      "assignees": [
+        "권이지"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:edcf430d73681816dc2adf6e",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        17
+      ],
+      "category": "인사 총무",
+      "detail": "인원일보",
+      "content": "인원일보 오후 보고 작성",
+      "assignees": [
+        "권이지",
+        "권민기"
+      ],
+      "frequency": "월1회"
+    },
+    {
+      "source_ref": "security-it-260902:7f895c1851cc4876c7a6a632",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        18
+      ],
+      "category": "인사 총무",
+      "detail": "인사데이터",
+      "content": "임직원 연가신청서(전자결재) 합의(결재) 후 점검",
+      "assignees": [
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:4c83c48111606900893c034d",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        19
+      ],
+      "category": "인사 총무",
+      "detail": "인사데이터",
+      "content": "임직원 연차 관리대장에 등록",
+      "assignees": [
+        "권민기"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:698bfa547f060c121824fc94",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        20
+      ],
+      "category": "인사 총무",
+      "detail": "인사데이터",
+      "content": "결재완료된 임직원 연가신청서(전자결재) PDF 변환하여 보관",
+      "assignees": [
+        "권민기"
+      ],
+      "frequency": "월1회"
+    },
+    {
+      "source_ref": "security-it-260902:c672468416f9b01d57effed9",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        21
+      ],
+      "category": "인사 총무",
+      "detail": "법정의무교육",
+      "content": "임직원 법정의무교육 진행(공고, 일정, 인원, 보고서 작성등)",
+      "assignees": [
+        "권민기"
+      ],
+      "frequency": "분기별"
+    },
+    {
+      "source_ref": "security-it-260902:f3659c32705c075d7737887f",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        22
+      ],
+      "category": "인사 총무",
+      "detail": "근로계약서",
+      "content": "서울사이트 신규 입사자 및 지원인력 계약서 관리 및 계약서 작성",
+      "assignees": [
+        "담당자 미정"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:6a24fda575a3db0a8b15ce17",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        23
+      ],
+      "category": "인사 총무",
+      "detail": "비품구매",
+      "content": "서울사이트 비품구매",
+      "assignees": [
+        "담당자 미정"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:1f2b57a86e06617a747b8f57",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        24
+      ],
+      "category": "인사 총무",
+      "detail": "숙소",
+      "content": "대표이사님 숙소 관리",
+      "assignees": [
+        "담당자 미정"
+      ],
+      "frequency": "단발성"
+    },
+    {
+      "source_ref": "security-it-260902:83bf36b1614a67018abe5d76",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        25
+      ],
+      "category": "인사 총무",
+      "detail": "지출품의서",
+      "content": "서울사이트내 지출품의서 취합 및 부산발송용 스캔 작업",
+      "assignees": [
+        "담당자 미정"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:208fb93652253bade5d84474",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        26
+      ],
+      "category": "인사 총무",
+      "detail": "법인카드",
+      "content": "서울사이트내 법인카드 사용 관리 및 카드 분출",
+      "assignees": [
+        "담당자 미정"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:a8ad3246d9a0a5dde61d4004",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        27
+      ],
+      "category": "인사 총무",
+      "detail": "ISP",
+      "content": "서울사이트내 ISP(공동인증서) 사용 및 분출",
+      "assignees": [
+        "담당자 미정"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:779eef99cb86c2bc2ed319cc",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        28
+      ],
+      "category": "인사 총무",
+      "detail": "주차관리",
+      "content": "서울사이트 주차 관리(웹사이트)",
+      "assignees": [
+        "담당자 미정"
+      ],
+      "frequency": "월1회"
+    },
+    {
+      "source_ref": "security-it-260902:b54c986eb559ce715dc1c231",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        29
+      ],
+      "category": "시설관리",
+      "detail": "시설 관리 보고서",
+      "content": "매주 수요일 시설관리 담당자에게 업무 협조 요청 후 취합하여 보고서 작성",
+      "assignees": [
+        "담당자 미정"
+      ],
+      "frequency": "주1회"
+    },
+    {
+      "source_ref": "security-it-260902:ce063b1db078375d891053ba",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        30
+      ],
+      "category": "시설관리",
+      "detail": "시설 관리 보고서",
+      "content": "1004호 시설관리 담당자",
+      "assignees": [
+        "담당자 미정"
+      ],
+      "frequency": "주1회"
+    },
+    {
+      "source_ref": "security-it-260902:40fab624f6c9169c92253191",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        31
+      ],
+      "category": "재물조사",
+      "detail": "재물조사 보고서",
+      "content": "재물조사 담당자에게 업무 협조 요청 후 취합하여 보고서 작성",
+      "assignees": [
+        "담당자 미정"
+      ],
+      "frequency": "년1회이상"
+    },
+    {
+      "source_ref": "security-it-260902:cf03dd9c0716ab5ed692c2f8",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        32
+      ],
+      "category": "재물조사",
+      "detail": "재물조사",
+      "content": "부산사이트 취합",
+      "assignees": [
+        "담당자 미정"
+      ],
+      "frequency": "년1회이상"
+    },
+    {
+      "source_ref": "security-it-260902:b11b8f256919c406d882b1e2",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        33
+      ],
+      "category": "재물조사",
+      "detail": "재물조사",
+      "content": "서울사이트 취합",
+      "assignees": [
+        "담당자 미정"
+      ],
+      "frequency": "년1회이상"
+    },
+    {
+      "source_ref": "security-it-260902:5f09012281575f83f62dfe32",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        34
+      ],
+      "category": "다이어리",
+      "detail": "불출입 대장",
+      "content": "1004호 담당자",
+      "assignees": [
+        "담당자 미정"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:4ac041363dfa3b18cf604023",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        35
+      ],
+      "category": "수건,골프공",
+      "detail": "불출입 대장",
+      "content": "서울사이트 손님용 선물(수건, 골프공 등) 관리대장 관리(파일)",
+      "assignees": [
+        "담당자 미정"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:9937539ed32dd750762ed539",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        36
+      ],
+      "category": "상품권",
+      "detail": "스타벅스 불출입 대장",
+      "content": "스타벅스 상품권 관리대장 관리(파일)",
+      "assignees": [
+        "담당자 미정"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:646c70c92120e2115784e37b",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        37
+      ],
+      "category": "차량관리",
+      "detail": "운행일지",
+      "content": "부산사이트 차량운행일지 및 차량키 관리",
+      "assignees": [
+        "담당자 미정"
+      ],
+      "frequency": "지속"
+    },
+    {
+      "source_ref": "security-it-260902:699f60d57d2afd716512e4b0",
+      "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+      "source_sheet": "업무분장-보안전산(인사총무)_260902",
+      "source_rows": [
+        38
+      ],
+      "category": "차량관리",
+      "detail": "운행일지",
+      "content": "서울사이트 차량운행일지 및 차량키 관리",
+      "assignees": [
+        "담당자 미정"
+      ],
+      "frequency": "지속"
+    }
+  ]
+}

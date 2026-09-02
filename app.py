@@ -193,6 +193,13 @@ class Task(db.Model):
     progress = db.Column(db.Integer, nullable=False, default=0)
     repeat_cycle = db.Column(db.String(20), nullable=False, default="없음")
     repeat_detail = db.Column(db.String(100), nullable=True)
+    source_ref = db.Column(db.String(100), unique=True, nullable=True, index=True)
+    source_name = db.Column(db.String(255), nullable=True)
+    source_sheet = db.Column(db.String(255), nullable=True)
+    source_category = db.Column(db.String(100), nullable=True)
+    source_detail = db.Column(db.String(150), nullable=True)
+    source_assignees = db.Column(db.String(250), nullable=True)
+    source_frequency = db.Column(db.String(50), nullable=True)
     created_by_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
@@ -215,6 +222,14 @@ class Task(db.Model):
     @property
     def status_class(self):
         return STATUS_CLASS.get(self.status, "progress")
+
+    @property
+    def display_assignees(self):
+        return self.source_assignees or self.assignee.name
+
+    @property
+    def is_source_import(self):
+        return bool(self.source_ref)
 
 
 class TaskClassification(db.Model):
@@ -373,6 +388,99 @@ def refresh_overdue_tasks():
     db.session.commit()
 
 
+def import_security_it_tasks():
+    seed_path = os.path.join(os.path.dirname(__file__), "seed", "security_it_tasks_260902.json")
+    with open(seed_path, encoding="utf-8") as seed_file:
+        payload = json.load(seed_file)
+
+    department = db.session.scalar(select(Department).where(Department.name == "보안전산팀"))
+    admin_user = db.session.scalar(
+        select(Employee).where(Employee.login_id == os.getenv("BOOTSTRAP_ADMIN_ID", "admin"))
+    )
+    if not department or not admin_user:
+        raise RuntimeError("보안전산팀 업무를 등록할 부서 또는 관리자 계정을 찾을 수 없습니다.")
+
+    recurring_frequencies = {"일", "주1회", "월1회", "월2회", "분기별", "년1회", "년1회이상", "지속"}
+    repeat_cycles = {
+        "일": "일간",
+        "주1회": "주간",
+        "월1회": "월간",
+        "월2회": "월간",
+        "분기별": "분기",
+        "년1회": "연간",
+        "년1회이상": "연간",
+    }
+    target_dates = {
+        "일": date(2026, 9, 2),
+        "주1회": date(2026, 9, 9),
+        "월1회": date(2026, 9, 30),
+        "월2회": date(2026, 9, 30),
+        "분기별": date(2026, 9, 30),
+        "년1회": date(2026, 12, 31),
+        "년1회이상": date(2026, 12, 31),
+        "지속": date(2026, 12, 31),
+        "변경 시": date(2026, 12, 31),
+        "불시": date(2026, 12, 31),
+        "단발성": date(2026, 12, 31),
+    }
+    existing_refs = set(
+        db.session.scalars(
+            select(Task.source_ref).where(Task.source_ref.in_([item["source_ref"] for item in payload["tasks"]]))
+        ).all()
+    )
+    created_count = 0
+    for item in payload["tasks"]:
+        if item["source_ref"] in existing_refs:
+            continue
+        frequency = item["frequency"]
+        title_detail = item["detail"] or item["content"]
+        task = Task(
+            title=f'{item["category"]} · {title_detail}'[:250],
+            content=item["content"],
+            department_id=department.id,
+            assignee_id=admin_user.id,
+            start_date=date(2026, 9, 2),
+            target_date=target_dates.get(frequency, date(2026, 12, 31)),
+            status="진행중",
+            progress=0,
+            repeat_cycle=repeat_cycles.get(frequency, "없음"),
+            repeat_detail=frequency,
+            source_ref=item["source_ref"],
+            source_name=item["source_name"],
+            source_sheet=item["source_sheet"],
+            source_category=item["category"],
+            source_detail=item["detail"],
+            source_assignees=", ".join(item["assignees"]),
+            source_frequency=frequency,
+            created_by_id=admin_user.id,
+        )
+        classification = "루틴" if frequency in recurring_frequencies else "주요"
+        task.classifications = [TaskClassification(name=classification)]
+        db.session.add(task)
+        created_count += 1
+
+    imported_count = db.session.scalar(
+        select(func.count(Task.id)).where(Task.source_name == "경영_보안전산팀 업무분장_260902.xlsx")
+    ) or 0
+    final_count = imported_count
+    if final_count != payload["expected_count"]:
+        db.session.rollback()
+        raise RuntimeError(
+            f'보안전산팀 업무 등록 건수가 일치하지 않습니다: {final_count}/{payload["expected_count"]}'
+        )
+    if created_count:
+        db.session.add(
+            AuditLog(
+                user_id=admin_user.id,
+                action="SECURITY_IT_WORKBOOK_IMPORT",
+                target="경영_보안전산팀 업무분장_260902.xlsx",
+                details={"created": created_count, "total": final_count, "deduplicated": 8},
+                ip_address=None,
+            )
+        )
+    db.session.commit()
+
+
 def seed_reference_data():
     role_specs = [
         ("시스템관리자", "all", {"admin": True, "task_manage_all": True, "meeting_all": True}, True),
@@ -456,6 +564,7 @@ def seed_reference_data():
                 )
             )
     db.session.commit()
+    import_security_it_tasks()
 
 
 def run_startup_tasks(app):
@@ -549,12 +658,21 @@ def create_app(test_config=None):
                     select(Employee).where(Employee.login_id == os.getenv("BOOTSTRAP_ADMIN_ID", "admin"))
                 )
                 reset_ready = bool(reset_user and reset_user.password_hash == reset_hash)
-            ready = admin_ready and reset_ready
+            import_ready = (
+                db.session.scalar(
+                    select(func.count(Task.id)).where(
+                        Task.source_name == "경영_보안전산팀 업무분장_260902.xlsx"
+                    )
+                )
+                == 116
+            )
+            ready = admin_ready and reset_ready and import_ready
             return jsonify(
                 status="ok",
                 database="connected",
                 application_ready=admin_ready,
                 credential_sync_ready=reset_ready,
+                security_it_import_ready=import_ready,
             ), (200 if ready else 503)
         except Exception:
             return jsonify(status="error", database="unavailable"), 503
@@ -671,7 +789,16 @@ def create_app(test_config=None):
         start = request.args.get("start", "")
         end = request.args.get("end", "")
         if keyword:
-            query = query.where(or_(Task.title.ilike(f"%{keyword}%"), Task.content.ilike(f"%{keyword}%")))
+            query = query.where(
+                or_(
+                    Task.title.ilike(f"%{keyword}%"),
+                    Task.content.ilike(f"%{keyword}%"),
+                    Task.source_category.ilike(f"%{keyword}%"),
+                    Task.source_detail.ilike(f"%{keyword}%"),
+                    Task.source_assignees.ilike(f"%{keyword}%"),
+                    Task.source_frequency.ilike(f"%{keyword}%"),
+                )
+            )
         if department_id:
             query = query.where(Task.department_id == department_id)
         if assignee_id:
