@@ -37,7 +37,7 @@ login_manager = LoginManager()
 login_manager.login_view = "login"
 login_manager.login_message = "로그인이 필요합니다."
 
-TASK_TYPES = ("대표이사수명", "루틴", "개인", "주요")
+TASK_TYPES = ("대표이사님 수명업무", "루틴", "개인", "주요")
 TASK_STATUSES = ("진행중", "완료", "지연", "보류")
 REPEAT_CYCLES = ("없음", "일간", "주간", "월간", "분기", "연간")
 STATUS_CLASS = {"진행중": "progress", "완료": "done", "지연": "delayed", "보류": "hold"}
@@ -230,6 +230,22 @@ class Task(db.Model):
     @property
     def is_source_import(self):
         return bool(self.source_ref)
+
+    @property
+    def dashboard_hidden(self):
+        frequency = (self.source_frequency or self.repeat_detail or "").replace(" ", "")
+        return self.repeat_cycle == "일간" or frequency in {"일", "일간", "매일", "지속", "상시"}
+
+    @property
+    def remaining_label(self):
+        days = self.remaining_days
+        if days is None:
+            return "완료"
+        if days == 0:
+            return "D-DAY"
+        if days < 0:
+            return f"D+{abs(days)}"
+        return f"D-{days}"
 
 
 class TaskClassification(db.Model):
@@ -487,6 +503,22 @@ def import_security_it_tasks():
 
 
 def seed_reference_data():
+    legacy_task_types = db.session.scalars(
+        select(TaskClassification).where(TaskClassification.name == "대표이사수명")
+    ).all()
+    for legacy_type in legacy_task_types:
+        current_type = db.session.scalar(
+            select(TaskClassification).where(
+                TaskClassification.task_id == legacy_type.task_id,
+                TaskClassification.name == "대표이사님 수명업무",
+            )
+        )
+        if current_type:
+            db.session.delete(legacy_type)
+        else:
+            legacy_type.name = "대표이사님 수명업무"
+    db.session.flush()
+
     for legacy_name, current_name in (("시스템관리자", "관리자"), ("대표이사", "부서장")):
         legacy_role = db.session.scalar(select(Role).where(Role.name == legacy_name))
         current_role = db.session.scalar(select(Role).where(Role.name == current_name))
@@ -794,14 +826,16 @@ def create_app(test_config=None):
             department.name: sum(1 for task in tasks if task.department_id == department.id)
             for department in visible_departments
         }
-        type_counts = {name: sum(1 for task in tasks if name in task.type_names) for name in TASK_TYPES}
+        board_tasks = [task for task in tasks if not task.dashboard_hidden]
+        routine_tasks = [task for task in board_tasks if "루틴" in task.type_names][:12]
+        major_tasks = [task for task in board_tasks if "주요" in task.type_names][:12]
         return render_template(
             "dashboard.html",
             routine=task_summary("루틴"),
             major=task_summary("주요"),
-            tasks=tasks[:20],
+            routine_tasks=routine_tasks,
+            major_tasks=major_tasks,
             department_counts=department_counts,
-            type_counts=type_counts,
             can_view_all_tasks=current_user.role.data_scope == "all",
         )
 
@@ -1013,7 +1047,12 @@ def create_app(test_config=None):
                     repeat_cycle=str(row[9] or "없음") if str(row[9] or "없음") in REPEAT_CYCLES else "없음",
                     created_by_id=current_user.id,
                 )
-                types = [item.strip() for item in str(row[2]).split("|") if item.strip() in TASK_TYPES]
+                uploaded_types = [item.strip() for item in str(row[2]).split("|")]
+                types = [
+                    "대표이사님 수명업무" if item == "대표이사수명" else item
+                    for item in uploaded_types
+                    if item in TASK_TYPES or item == "대표이사수명"
+                ]
                 if not types:
                     raise ValueError(f"{created + 2}행의 업무 분류가 올바르지 않습니다.")
                 task.classifications = [TaskClassification(name=name) for name in types]
