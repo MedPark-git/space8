@@ -435,6 +435,26 @@ def seed_reference_data():
                 must_change_password=True,
             )
         )
+
+    password_reset_hash = os.getenv("ADMIN_PASSWORD_RESET_HASH")
+    if password_reset_hash:
+        admin_user = db.session.scalar(select(Employee).where(Employee.login_id == bootstrap_id))
+        if not admin_user:
+            raise RuntimeError(f"비밀번호를 변경할 관리자 계정({bootstrap_id})을 찾을 수 없습니다.")
+        if admin_user.password_hash != password_reset_hash:
+            admin_user.password_hash = password_reset_hash
+            admin_user.failed_login_count = 0
+            admin_user.locked_until = None
+            admin_user.must_change_password = False
+            db.session.add(
+                AuditLog(
+                    user_id=admin_user.id,
+                    action="ADMIN_PASSWORD_RESET",
+                    target=f"employee:{admin_user.id}",
+                    details={"source": "one_time_environment"},
+                    ip_address=None,
+                )
+            )
     db.session.commit()
 
 
@@ -522,7 +542,20 @@ def create_app(test_config=None):
                     .where(Role.name == "시스템관리자", Employee.status == "재직")
                 )
             )
-            return jsonify(status="ok", database="connected", application_ready=admin_ready), (200 if admin_ready else 503)
+            reset_hash = os.getenv("ADMIN_PASSWORD_RESET_HASH")
+            reset_ready = True
+            if reset_hash:
+                reset_user = db.session.scalar(
+                    select(Employee).where(Employee.login_id == os.getenv("BOOTSTRAP_ADMIN_ID", "admin"))
+                )
+                reset_ready = bool(reset_user and reset_user.password_hash == reset_hash)
+            ready = admin_ready and reset_ready
+            return jsonify(
+                status="ok",
+                database="connected",
+                application_ready=admin_ready,
+                credential_sync_ready=reset_ready,
+            ), (200 if ready else 503)
         except Exception:
             return jsonify(status="error", database="unavailable"), 503
 
