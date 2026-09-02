@@ -26,7 +26,15 @@
       <span class="department-selector-label"><strong>{{ item.department.name }}</strong><small>부서 업무 보기</small></span>
       <span class="department-selector-check" aria-hidden="true">✓</span>
     </span>
-    <div class="department-summary-counts"><strong>루틴업무 <b>{{ item.routine.total }}</b></strong><strong>주요업무 <b>{{ item.major.total }}</b></strong><strong>진행중 <b>{{ item.ongoing }}</b></strong></div>
+    <div class="department-summary-counts">
+      <strong>루틴업무 <b>{{ item.routine.total }}</b></strong>
+      <strong>주요업무 <b>{{ item.major.total }}</b></strong>
+      <strong>대표이사님 수명업무 <b>{{ item.executive.total }}</b></strong>
+      <strong>일반업무 <b>{{ item.general.total }}</b></strong>
+      <strong>진행중 <b>{{ item.ongoing }}</b></strong>
+      <strong>지연 <b>{{ item.delayed }}</b></strong>
+      <strong>보류 <b>{{ item.hold }}</b></strong>
+    </div>
   </a>
   {% endfor %}
   </div>
