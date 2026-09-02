@@ -110,7 +110,7 @@ class Role(db.Model):
     boards = db.relationship("Board", secondary=role_board, back_populates="roles")
 
     def allows(self, permission):
-        return self.name == "시스템관리자" or bool((self.permissions or {}).get(permission))
+        return self.name == "관리자" or bool((self.permissions or {}).get(permission))
 
 
 class Department(db.Model):
@@ -355,9 +355,7 @@ def visible_task_query(user):
     if scope == "all":
         return query
     if scope == "department":
-        return query.where(
-            or_(Task.department_id == user.department_id, Task.assignee_id == user.id, Task.created_by_id == user.id)
-        )
+        return query.where(Task.department_id == user.department_id)
     return query.where(or_(Task.assignee_id == user.id, Task.created_by_id == user.id))
 
 
@@ -371,7 +369,14 @@ def can_view_task_detail(task):
 
 
 def can_edit_task(task):
-    return current_user.role.allows("task_manage_all") or task.assignee_id == current_user.id or task.created_by_id == current_user.id
+    return current_user.role.allows("task_manage_all") or (
+        current_user.role.allows("task_manage_department")
+        and task.department_id == current_user.department_id
+    )
+
+
+def can_write_department(department_id):
+    return current_user.role.allows("task_manage_all") or department_id == current_user.department_id
 
 
 def refresh_overdue_tasks():
@@ -482,11 +487,28 @@ def import_security_it_tasks():
 
 
 def seed_reference_data():
+    for legacy_name, current_name in (("시스템관리자", "관리자"), ("대표이사", "부서장")):
+        legacy_role = db.session.scalar(select(Role).where(Role.name == legacy_name))
+        current_role = db.session.scalar(select(Role).where(Role.name == current_name))
+        if legacy_role and not current_role:
+            legacy_role.name = current_name
+        elif legacy_role and current_role:
+            for employee in list(legacy_role.employees):
+                employee.role = current_role
+            for menu in list(legacy_role.menus):
+                if current_role not in menu.roles:
+                    menu.roles.append(current_role)
+            for board in list(legacy_role.boards):
+                if current_role not in board.roles:
+                    board.roles.append(current_role)
+            db.session.delete(legacy_role)
+    db.session.flush()
+
     role_specs = [
-        ("시스템관리자", "all", {"admin": True, "task_manage_all": True, "meeting_all": True}, True),
-        ("대표이사", "all", {"task_manage_all": True, "meeting_all": True}, True),
-        ("팀장", "department", {"task_manage_department": True, "meeting_all": True}, True),
-        ("팀원", "department", {"task_create": True}, True),
+        ("관리자", "all", {"admin": True, "task_create": True, "task_manage_all": True, "meeting_all": True}, True),
+        ("부서장", "all", {"task_create": True, "task_view_all": True, "task_manage_department": True, "meeting_all": True}, True),
+        ("팀장", "all", {"task_create": True, "task_view_all": True, "task_manage_department": True, "meeting_all": True}, True),
+        ("팀원", "department", {"task_create": True, "task_manage_department": True}, True),
     ]
     roles = {}
     for name, scope, permissions, is_system in role_specs:
@@ -494,6 +516,10 @@ def seed_reference_data():
         if not role:
             role = Role(name=name, data_scope=scope, permissions=permissions, is_system=is_system)
             db.session.add(role)
+        else:
+            role.data_scope = scope
+            role.permissions = permissions
+            role.is_system = is_system
         roles[name] = role
 
     root = db.session.scalar(select(Department).where(Department.name == "경영사업본부"))
@@ -516,14 +542,16 @@ def seed_reference_data():
         ("관리자", "/admin/employees", 90),
     ]
     for name, url, order in menu_specs:
-        if not db.session.scalar(select(Menu).where(Menu.name == name)):
+        menu = db.session.scalar(select(Menu).where(Menu.name == name))
+        if not menu:
             menu = Menu(name=name, url=url, sort_order=order)
-            menu.roles = list(roles.values()) if name != "관리자" else [roles["시스템관리자"]]
             db.session.add(menu)
-    if not db.session.scalar(select(Board).where(Board.name == "공지사항")):
+        menu.roles = list(roles.values()) if name != "관리자" else [roles["관리자"]]
+    board = db.session.scalar(select(Board).where(Board.name == "공지사항"))
+    if not board:
         board = Board(name="공지사항", board_type="공지", options={"allow_comments": False})
-        board.roles = list(roles.values())
         db.session.add(board)
+    board.roles = list(roles.values())
 
     bootstrap_id = os.getenv("BOOTSTRAP_ADMIN_ID", "admin")
     bootstrap_hash = os.getenv("BOOTSTRAP_ADMIN_PASSWORD_HASH")
@@ -537,7 +565,7 @@ def seed_reference_data():
                 position="관리자",
                 login_id=bootstrap_id,
                 password_hash=bootstrap_hash,
-                role=roles["시스템관리자"],
+                role=roles["관리자"],
                 status="재직",
                 hire_date=date.today(),
                 must_change_password=True,
@@ -648,7 +676,7 @@ def create_app(test_config=None):
                 db.session.scalar(
                     select(func.count(Employee.id))
                     .join(Role, Employee.role_id == Role.id)
-                    .where(Role.name == "시스템관리자", Employee.status == "재직")
+                    .where(Role.name == "관리자", Employee.status == "재직")
                 )
             )
             reset_hash = os.getenv("ADMIN_PASSWORD_RESET_HASH")
@@ -758,15 +786,14 @@ def create_app(test_config=None):
                 "hold": sum(1 for task in subset if task.status == "보류"),
             }
 
-        department_counts = dict(
-            db.session.execute(
-                select(Department.name, func.count(Task.id))
-                .outerjoin(Task, Task.department_id == Department.id)
-                .where(Department.active.is_(True))
-                .group_by(Department.id, Department.name)
-                .order_by(Department.id)
-            ).all()
-        )
+        departments_query = select(Department).where(Department.active.is_(True))
+        if current_user.role.data_scope != "all":
+            departments_query = departments_query.where(Department.id == current_user.department_id)
+        visible_departments = db.session.scalars(departments_query.order_by(Department.id)).all()
+        department_counts = {
+            department.name: sum(1 for task in tasks if task.department_id == department.id)
+            for department in visible_departments
+        }
         type_counts = {name: sum(1 for task in tasks if name in task.type_names) for name in TASK_TYPES}
         return render_template(
             "dashboard.html",
@@ -775,6 +802,7 @@ def create_app(test_config=None):
             tasks=tasks[:20],
             department_counts=department_counts,
             type_counts=type_counts,
+            can_view_all_tasks=current_user.role.data_scope == "all",
         )
 
     @app.get("/tasks")
@@ -813,12 +841,18 @@ def create_app(test_config=None):
             query = query.where(Task.target_date <= date.fromisoformat(end))
         page = max(request.args.get("page", 1, type=int), 1)
         pagination = db.paginate(query.order_by(Task.target_date, Task.id), page=page, per_page=20, error_out=False)
+        departments_query = select(Department).where(Department.active.is_(True))
+        employees_query = select(Employee).where(Employee.status == "재직")
+        if current_user.role.data_scope != "all":
+            departments_query = departments_query.where(Department.id == current_user.department_id)
+            employees_query = employees_query.where(Employee.department_id == current_user.department_id)
         return render_template(
             "tasks.html",
             mode="list",
             pagination=pagination,
-            departments=db.session.scalars(select(Department).where(Department.active.is_(True)).order_by(Department.name)).all(),
-            employees=db.session.scalars(select(Employee).where(Employee.status == "재직").order_by(Employee.name)).all(),
+            departments=db.session.scalars(departments_query.order_by(Department.name)).all(),
+            employees=db.session.scalars(employees_query.order_by(Employee.name)).all(),
+            can_view_all_tasks=current_user.role.data_scope == "all",
         )
 
     @app.route("/tasks/new", methods=["GET", "POST"])
@@ -835,19 +869,35 @@ def create_app(test_config=None):
         return task_form_handler(task)
 
     def task_form_handler(task):
-        departments = db.session.scalars(select(Department).where(Department.active.is_(True)).order_by(Department.name)).all()
-        employees = db.session.scalars(select(Employee).where(Employee.status == "재직").order_by(Employee.name)).all()
+        departments_query = select(Department).where(Department.active.is_(True))
+        employees_query = select(Employee).where(Employee.status == "재직")
+        if not current_user.role.allows("task_manage_all"):
+            departments_query = departments_query.where(Department.id == current_user.department_id)
+            employees_query = employees_query.where(Employee.department_id == current_user.department_id)
+        departments = db.session.scalars(departments_query.order_by(Department.name)).all()
+        employees = db.session.scalars(employees_query.order_by(Employee.name)).all()
         if request.method == "POST":
             types = [name for name in request.form.getlist("task_types") if name in TASK_TYPES]
             if not types:
                 flash("업무 분류를 하나 이상 선택해 주세요.", "danger")
             else:
+                department_id = int(request.form["department_id"])
+                assignee_id = int(request.form["assignee_id"])
+                department = db.session.get(Department, department_id)
+                assignee = db.session.get(Employee, assignee_id)
+                if not department or not department.active or not assignee or assignee.status != "재직":
+                    abort(400)
+                if not can_write_department(department_id):
+                    abort(403)
+                if assignee.department_id != department_id:
+                    flash("담당자는 업무 부서에 소속된 임직원만 지정할 수 있습니다.", "danger")
+                    return render_template("tasks.html", mode="form", task=task, departments=departments, employees=employees)
                 old_status = task.status if task else None
                 target = task or Task(created_by_id=current_user.id)
                 target.title = request.form.get("title", "").strip()
                 target.content = request.form.get("content", "").strip()
-                target.department_id = int(request.form["department_id"])
-                target.assignee_id = int(request.form["assignee_id"])
+                target.department_id = department_id
+                target.assignee_id = assignee_id
                 target.start_date = date.fromisoformat(request.form["start_date"])
                 target.target_date = date.fromisoformat(request.form["target_date"])
                 target.status = request.form.get("status", "진행중") if request.form.get("status") in TASK_STATUSES else "진행중"
@@ -888,7 +938,7 @@ def create_app(test_config=None):
     def task_detail(task_id):
         task = db.get_or_404(Task, task_id)
         if not can_view_task_detail(task):
-            return render_template("tasks.html", mode="masked", task=task), 200
+            abort(403)
         if request.method == "POST":
             if not can_edit_task(task):
                 abort(403)
@@ -913,7 +963,7 @@ def create_app(test_config=None):
         ws.title = "업무등록"
         headers = ["제목", "내용", "분류", "부서", "담당자 로그인ID", "착수일", "목표일", "상태", "진행률", "반복주기"]
         ws.append(headers)
-        ws.append(["월간 비용 마감", "마감자료 취합", "루틴|주요", "재무운영팀", "admin", date.today(), date.today() + timedelta(days=7), "진행중", 10, "월간"])
+        ws.append(["월간 비용 마감", "마감자료 취합", "루틴|주요", current_user.department.name, current_user.login_id, date.today(), date.today() + timedelta(days=7), "진행중", 10, "월간"])
         ws.freeze_panes = "A2"
         for column in ws.columns:
             ws.column_dimensions[column[0].column_letter].width = max(len(str(cell.value or "")) for cell in column) + 3
@@ -945,6 +995,10 @@ def create_app(test_config=None):
                 employee = db.session.scalar(select(Employee).where(Employee.login_id == str(row[4]).strip()))
                 if not department or not employee:
                     raise ValueError(f"{created + 2}행의 부서 또는 담당자를 찾을 수 없습니다.")
+                if employee.status != "재직" or employee.department_id != department.id:
+                    raise ValueError(f"{created + 2}행의 담당자는 해당 부서의 재직자여야 합니다.")
+                if not can_write_department(department.id):
+                    raise ValueError(f"{created + 2}행은 소속 부서 업무만 등록할 수 있습니다.")
                 start_date = row[5].date() if isinstance(row[5], datetime) else (row[5] if isinstance(row[5], date) else date.fromisoformat(str(row[5])))
                 target_date = row[6].date() if isinstance(row[6], datetime) else (row[6] if isinstance(row[6], date) else date.fromisoformat(str(row[6])))
                 task = Task(
