@@ -49,7 +49,11 @@
     {% for item in department_summaries %}
     <a href="{{ url_for('task_list', department_id=item.department.id) }}" class="department-card department-summary-card">
       <span>{{ item.department.name }}</span><strong>{{ item.total }}</strong><small>전체 업무</small>
-      <div class="department-metrics"><b>루틴 {{ item.routine.total }}</b><b>주요 {{ item.major.total }}</b><b>진행중 {{ item.ongoing }}</b></div>
+      <div class="department-metrics">
+        <b>루틴업무 {{ item.routine.total }}</b><b>주요업무 {{ item.major.total }}</b>
+        <b>대표이사님 수명업무 {{ item.executive.total }}</b><b>일반업무 {{ item.general.total }}</b>
+        <b>진행중 {{ item.ongoing }}</b><b>지연 {{ item.delayed }}</b><b>보류 {{ item.hold }}</b>
+      </div>
     </a>
     {% endfor %}
   </div>
