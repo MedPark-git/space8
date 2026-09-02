@@ -24,7 +24,7 @@ from flask_migrate import Migrate, upgrade
 from flask_sqlalchemy import SQLAlchemy
 from flask_wtf.csrf import CSRFProtect
 from openpyxl import Workbook, load_workbook
-from sqlalchemy import UniqueConstraint, and_, func, or_, select, text
+from sqlalchemy import UniqueConstraint, and_, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -37,7 +37,7 @@ login_manager = LoginManager()
 login_manager.login_view = "login"
 login_manager.login_message = "로그인이 필요합니다."
 
-TASK_TYPES = ("대표이사님 수명업무", "루틴", "개인", "주요")
+TASK_TYPES = ("대표이사님 수명업무", "루틴", "일반", "주요")
 TASK_STATUSES = ("진행중", "완료", "지연", "보류")
 REPEAT_CYCLES = ("없음", "일간", "주간", "월간", "분기", "연간")
 STATUS_CLASS = {"진행중": "progress", "완료": "done", "지연": "delayed", "보류": "hold"}
@@ -503,20 +503,21 @@ def import_security_it_tasks():
 
 
 def seed_reference_data():
-    legacy_task_types = db.session.scalars(
-        select(TaskClassification).where(TaskClassification.name == "대표이사수명")
-    ).all()
-    for legacy_type in legacy_task_types:
-        current_type = db.session.scalar(
-            select(TaskClassification).where(
-                TaskClassification.task_id == legacy_type.task_id,
-                TaskClassification.name == "대표이사님 수명업무",
+    for legacy_name, current_name in (("대표이사수명", "대표이사님 수명업무"), ("개인", "일반")):
+        legacy_task_types = db.session.scalars(
+            select(TaskClassification).where(TaskClassification.name == legacy_name)
+        ).all()
+        for legacy_type in legacy_task_types:
+            current_type = db.session.scalar(
+                select(TaskClassification).where(
+                    TaskClassification.task_id == legacy_type.task_id,
+                    TaskClassification.name == current_name,
+                )
             )
-        )
-        if current_type:
-            db.session.delete(legacy_type)
-        else:
-            legacy_type.name = "대표이사님 수명업무"
+            if current_type:
+                db.session.delete(legacy_type)
+            else:
+                legacy_type.name = current_name
     db.session.flush()
 
     for legacy_name, current_name in (("시스템관리자", "관리자"), ("대표이사", "부서장")):
@@ -555,14 +556,30 @@ def seed_reference_data():
         roles[name] = role
 
     root = db.session.scalar(select(Department).where(Department.name == "경영사업본부"))
-    if not root:
-        root = Department(name="경영사업본부")
-        db.session.add(root)
-        db.session.flush()
     for name in ("재무운영팀", "인사총무팀", "보안전산팀"):
-        if not db.session.scalar(select(Department).where(Department.name == name)):
-            db.session.add(Department(name=name, parent=root))
+        department = db.session.scalar(select(Department).where(Department.name == name))
+        if not department:
+            department = Department(name=name)
+            db.session.add(department)
+        department.active = True
+        if root and department.parent_id == root.id:
+            department.parent_id = None
     db.session.flush()
+
+    if root:
+        for child in list(root.children):
+            child.parent_id = None
+        db.session.execute(update(Schedule).where(Schedule.department_id == root.id).values(department_id=None))
+        db.session.flush()
+        hard_reference_count = sum(
+            db.session.scalar(select(func.count(model.id)).where(model.department_id == root.id)) or 0
+            for model in (Employee, Task, DailyMeeting)
+        )
+        if hard_reference_count:
+            root.active = False
+        else:
+            db.session.delete(root)
+        db.session.flush()
 
     menu_specs = [
         ("통합현황", "/", 10),
@@ -588,7 +605,9 @@ def seed_reference_data():
     bootstrap_id = os.getenv("BOOTSTRAP_ADMIN_ID", "admin")
     bootstrap_hash = os.getenv("BOOTSTRAP_ADMIN_PASSWORD_HASH")
     if bootstrap_hash and not db.session.scalar(select(Employee).where(Employee.login_id == bootstrap_id)):
-        dept = db.session.scalar(select(Department).where(Department.name == "보안전산팀")) or root
+        dept = db.session.scalar(select(Department).where(Department.name == "보안전산팀"))
+        if not dept:
+            raise RuntimeError("관리자 계정용 보안전산팀 부서를 찾을 수 없습니다.")
         db.session.add(
             Employee(
                 name=os.getenv("BOOTSTRAP_ADMIN_NAME", "시스템관리자"),
@@ -1025,7 +1044,12 @@ def create_app(test_config=None):
             for row in ws.iter_rows(min_row=2, values_only=True):
                 if not row[0]:
                     continue
-                department = db.session.scalar(select(Department).where(Department.name == str(row[3]).strip()))
+                department = db.session.scalar(
+                    select(Department).where(
+                        Department.name == str(row[3]).strip(),
+                        Department.active.is_(True),
+                    )
+                )
                 employee = db.session.scalar(select(Employee).where(Employee.login_id == str(row[4]).strip()))
                 if not department or not employee:
                     raise ValueError(f"{created + 2}행의 부서 또는 담당자를 찾을 수 없습니다.")
@@ -1048,11 +1072,14 @@ def create_app(test_config=None):
                     created_by_id=current_user.id,
                 )
                 uploaded_types = [item.strip() for item in str(row[2]).split("|")]
-                types = [
-                    "대표이사님 수명업무" if item == "대표이사수명" else item
-                    for item in uploaded_types
-                    if item in TASK_TYPES or item == "대표이사수명"
-                ]
+                type_aliases = {"대표이사수명": "대표이사님 수명업무", "개인": "일반"}
+                types = list(
+                    dict.fromkeys(
+                        type_aliases.get(item, item)
+                        for item in uploaded_types
+                        if type_aliases.get(item, item) in TASK_TYPES
+                    )
+                )
                 if not types:
                     raise ValueError(f"{created + 2}행의 업무 분류가 올바르지 않습니다.")
                 task.classifications = [TaskClassification(name=name) for name in types]
@@ -1164,7 +1191,7 @@ def create_app(test_config=None):
         tasks = db.session.scalars(
             select(Task)
             .join(TaskClassification)
-            .where(Task.assignee_id == employee_id, TaskClassification.name.in_(["주요", "개인"]), Task.start_date <= work_date, Task.target_date >= work_date)
+            .where(Task.assignee_id == employee_id, TaskClassification.name.in_(["주요", "일반"]), Task.start_date <= work_date, Task.target_date >= work_date)
             .distinct()
             .order_by(Task.target_date)
         ).all()
@@ -1280,7 +1307,9 @@ def create_app(test_config=None):
     def load_admin_data(section):
         common = {
             "roles": db.session.scalars(select(Role).order_by(Role.id)).all(),
-            "departments": db.session.scalars(select(Department).order_by(Department.id)).all(),
+            "departments": db.session.scalars(
+                select(Department).where(Department.active.is_(True)).order_by(Department.id)
+            ).all(),
             "employees": db.session.scalars(select(Employee).order_by(Employee.status, Employee.name)).all(),
         }
         if section == "menus":
