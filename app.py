@@ -1272,7 +1272,9 @@ def create_app(test_config=None):
         journal_selectable_ids = {
             task.id for task in pagination.items if can_write_department(task.department_id)
         }
+        major_selectable_ids = {task.id for task in pagination.items if can_edit_task(task)}
         deletable_task_ids = {task.id for task in pagination.items if can_delete_task(task)}
+        selectable_task_ids = journal_selectable_ids | major_selectable_ids | deletable_task_ids
         return render_template(
             "tasks.html",
             mode="list",
@@ -1284,7 +1286,9 @@ def create_app(test_config=None):
             cadence_total=len(cadence_tasks),
             selected_cadence=cadence if cadence in WORK_CADENCE_BY_KEY else "",
             journal_selectable_ids=journal_selectable_ids,
+            major_selectable_ids=major_selectable_ids,
             deletable_task_ids=deletable_task_ids,
+            selectable_task_ids=selectable_task_ids,
             can_view_all_tasks=current_user.role.data_scope == "all",
         )
 
@@ -1320,6 +1324,87 @@ def create_app(test_config=None):
         )
         db.session.commit()
         flash("업무가 삭제되었습니다. 기존 업무일지·회의·감사 이력은 보존됩니다.", "success")
+        return_to = request.form.get("return_to", "")
+        if return_to and urlparse(return_to).netloc == "":
+            return redirect(return_to)
+        return redirect(url_for("task_list"))
+
+    @app.post("/tasks/bulk-major")
+    @login_required
+    def task_bulk_major():
+        task_ids = {int(item) for item in request.form.getlist("task_ids") if item.isdigit()}
+        if not task_ids:
+            flash("주요업무로 등록할 업무를 선택해 주세요.", "danger")
+            return redirect(url_for("task_list"))
+        selected_tasks = db.session.scalars(
+            visible_task_query(current_user).where(Task.id.in_(task_ids)).order_by(Task.id)
+        ).all()
+        if len(selected_tasks) != len(task_ids) or any(not can_edit_task(task) for task in selected_tasks):
+            abort(403)
+        added_task_ids = []
+        for task in selected_tasks:
+            if "주요" in task.type_names:
+                continue
+            task.classifications.append(TaskClassification(name="주요"))
+            task.updated_at = utcnow()
+            added_task_ids.append(task.id)
+        audit(
+            "TASK_BULK_MAJOR_ADD",
+            "tasks:bulk",
+            {
+                "requested": len(task_ids),
+                "added": len(added_task_ids),
+                "task_ids": sorted(task_ids),
+                "added_task_ids": added_task_ids,
+            },
+        )
+        db.session.commit()
+        flash(
+            f"선택한 업무 {len(task_ids)}건 중 {len(added_task_ids)}건을 주요업무에 추가했습니다. "
+            "기존 업무 분류는 유지됩니다.",
+            "success",
+        )
+        return_to = request.form.get("return_to", "")
+        if return_to and urlparse(return_to).netloc == "":
+            return redirect(return_to)
+        return redirect(url_for("task_list"))
+
+    @app.post("/tasks/bulk-delete")
+    @login_required
+    def task_bulk_delete():
+        task_ids = {int(item) for item in request.form.getlist("task_ids") if item.isdigit()}
+        if not task_ids:
+            flash("삭제할 업무를 선택해 주세요.", "danger")
+            return redirect(url_for("task_list"))
+        selected_tasks = db.session.scalars(
+            visible_task_query(current_user).where(Task.id.in_(task_ids)).order_by(Task.id)
+        ).all()
+        if len(selected_tasks) != len(task_ids) or any(not can_delete_task(task) for task in selected_tasks):
+            abort(403)
+        deleted_at = utcnow()
+        for task in selected_tasks:
+            task.deleted_at = deleted_at
+            task.deleted_by_id = current_user.id
+            audit(
+                "TASK_DELETE",
+                f"task:{task.id}",
+                {
+                    "title": task.title,
+                    "department_id": task.department_id,
+                    "history_preserved": True,
+                    "bulk": True,
+                },
+            )
+        audit(
+            "TASK_BULK_DELETE",
+            "tasks:bulk",
+            {"deleted": len(task_ids), "task_ids": sorted(task_ids), "history_preserved": True},
+        )
+        db.session.commit()
+        flash(
+            f"선택한 업무 {len(task_ids)}건을 삭제했습니다. 기존 업무일지·회의·감사 이력은 보존됩니다.",
+            "success",
+        )
         return_to = request.form.get("return_to", "")
         if return_to and urlparse(return_to).netloc == "":
             return redirect(return_to)

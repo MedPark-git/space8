@@ -207,6 +207,99 @@ class TaskDeleteTests(unittest.TestCase):
         response = self.client.get(f"/tasks/{self.security_task_id}/delete")
         self.assertEqual(response.status_code, 405)
 
+    def test_member_can_bulk_add_major_without_removing_existing_classification(self):
+        self.login("member1")
+        response = self.client.post(
+            "/tasks/bulk-major",
+            data={"task_ids": [str(self.security_task_id)], "return_to": "/tasks"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        task = db.session.get(Task, self.security_task_id)
+        self.assertEqual(set(task.type_names), {"일반", "주요"})
+        self.assertTrue(task.calendar_auto_included)
+        audit = db.session.scalar(
+            db.select(AuditLog).where(AuditLog.action == "TASK_BULK_MAJOR_ADD")
+        )
+        self.assertEqual(audit.details["added_task_ids"], [self.security_task_id])
+
+    def test_bulk_major_is_idempotent(self):
+        self.login("member1")
+        payload = {"task_ids": [str(self.security_task_id)]}
+        self.assertEqual(self.client.post("/tasks/bulk-major", data=payload).status_code, 302)
+        self.assertEqual(self.client.post("/tasks/bulk-major", data=payload).status_code, 302)
+
+        task = db.session.get(Task, self.security_task_id)
+        self.assertEqual(task.type_names.count("주요"), 1)
+
+    def test_department_manager_cannot_bulk_add_major_to_another_department(self):
+        self.login("lead1")
+        response = self.client.post(
+            "/tasks/bulk-major",
+            data={"task_ids": [str(self.finance_task_id)]},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertNotIn("주요", db.session.get(Task, self.finance_task_id).type_names)
+
+    def test_team_lead_can_bulk_delete_own_department_tasks(self):
+        extra_task = self.create_task("보안 일괄 삭제 대상", self.security, self.users["member1"])
+        db.session.commit()
+        extra_task_id = extra_task.id
+        self.login("lead1")
+
+        response = self.client.post(
+            "/tasks/bulk-delete",
+            data={"task_ids": [str(self.security_task_id), str(extra_task_id)]},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNotNone(db.session.get(Task, self.security_task_id).deleted_at)
+        self.assertIsNotNone(db.session.get(Task, extra_task_id).deleted_at)
+        self.assertEqual(
+            db.session.scalar(
+                db.select(db.func.count(AuditLog.id)).where(AuditLog.action == "TASK_DELETE")
+            ),
+            2,
+        )
+        bulk_audit = db.session.scalar(
+            db.select(AuditLog).where(AuditLog.action == "TASK_BULK_DELETE")
+        )
+        self.assertEqual(bulk_audit.details["deleted"], 2)
+        self.assertTrue(bulk_audit.details["history_preserved"])
+
+    def test_bulk_delete_rejects_mixed_departments_without_partial_delete(self):
+        self.login("lead1")
+        response = self.client.post(
+            "/tasks/bulk-delete",
+            data={"task_ids": [str(self.security_task_id), str(self.finance_task_id)]},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIsNone(db.session.get(Task, self.security_task_id).deleted_at)
+        self.assertIsNone(db.session.get(Task, self.finance_task_id).deleted_at)
+
+    def test_member_cannot_bulk_delete_tasks(self):
+        self.login("member1")
+        response = self.client.post(
+            "/tasks/bulk-delete",
+            data={"task_ids": [str(self.security_task_id)]},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIsNone(db.session.get(Task, self.security_task_id).deleted_at)
+
+    def test_task_list_shows_bulk_actions_by_permission(self):
+        self.login("admin1")
+        admin_page = self.client.get("/tasks")
+        self.assertIn(b'data-bulk-major', admin_page.data)
+        self.assertIn(b'data-bulk-delete', admin_page.data)
+
+        self.login("member1")
+        member_page = self.client.get("/tasks")
+        self.assertIn(b'data-bulk-major', member_page.data)
+        self.assertNotIn(b'data-bulk-delete', member_page.data)
+
 
 if __name__ == "__main__":
     unittest.main()

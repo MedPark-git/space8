@@ -22,12 +22,22 @@ const initBulkJournal = (root = document) => {
   const selectAll = root.querySelector("[data-check-all]");
   const taskChecks = [...root.querySelectorAll("[data-task-check]:not(:disabled)")];
   const bulkButton = root.querySelector("[data-bulk-journal]");
+  const majorButton = root.querySelector("[data-bulk-major]");
+  const deleteButton = root.querySelector("[data-bulk-delete]");
+  const actions = [
+    { button: bulkButton, permission: "journalSelectable", emptyLabel: "업무일지에 일괄 담기", selectedLabel: "업무일지에 담기" },
+    { button: majorButton, permission: "majorSelectable", emptyLabel: "주요업무 등록", selectedLabel: "주요업무 등록" },
+    { button: deleteButton, permission: "deletable", emptyLabel: "선택 업무 삭제", selectedLabel: "삭제" },
+  ];
   const updateBulkState = () => {
-    const selectedCount = taskChecks.filter((checkbox) => checkbox.checked).length;
-    if (bulkButton) {
-      bulkButton.disabled = selectedCount === 0;
-      bulkButton.textContent = selectedCount ? `선택 ${selectedCount}건 업무일지에 담기` : "업무일지에 일괄 담기";
-    }
+    const selected = taskChecks.filter((checkbox) => checkbox.checked);
+    const selectedCount = selected.length;
+    actions.forEach(({ button, permission, emptyLabel, selectedLabel }) => {
+      if (!button) return;
+      button.disabled = selectedCount === 0 || selected.some((checkbox) => checkbox.dataset[permission] !== "true");
+      const label = button.querySelector("[data-bulk-label]");
+      if (label) label.textContent = selectedCount ? `선택 ${selectedCount}건 ${selectedLabel}` : emptyLabel;
+    });
     if (selectAll) {
       selectAll.checked = taskChecks.length > 0 && selectedCount === taskChecks.length;
       selectAll.indeterminate = selectedCount > 0 && selectedCount < taskChecks.length;
@@ -40,6 +50,13 @@ const initBulkJournal = (root = document) => {
     updateBulkState();
   });
   taskChecks.forEach((checkbox) => checkbox.addEventListener("change", updateBulkState));
+  actions.forEach(({ button }) => {
+    if (!button?.dataset.confirm || button.dataset.confirmBound) return;
+    button.dataset.confirmBound = "true";
+    button.addEventListener("click", (event) => {
+      if (!window.confirm(button.dataset.confirm)) event.preventDefault();
+    });
+  });
   updateBulkState();
 };
 
