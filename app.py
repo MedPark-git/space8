@@ -39,8 +39,19 @@ login_manager.login_message = "로그인이 필요합니다."
 
 TASK_TYPES = ("대표이사님 수명업무", "루틴", "일반", "주요")
 TASK_STATUSES = ("진행중", "완료", "지연", "보류")
-REPEAT_CYCLES = ("없음", "일간", "주간", "월간", "분기", "연간")
+REPEAT_CYCLES = ("없음", "일간", "주간", "월간", "분기", "반기", "연간", "상시")
 STATUS_CLASS = {"진행중": "progress", "완료": "done", "지연": "delayed", "보류": "hold"}
+WORK_CADENCES = (
+    {"key": "daily", "label": "매일", "cycle": "일간", "aliases": ("일", "일간", "매일")},
+    {"key": "weekly", "label": "매주", "cycle": "주간", "aliases": ("주", "주간", "매주", "주1회", "주2회")},
+    {"key": "monthly", "label": "매월", "cycle": "월간", "aliases": ("월", "월간", "매월", "월1회", "월2회")},
+    {"key": "quarterly", "label": "분기", "cycle": "분기", "aliases": ("분기", "분기별", "분기1회")},
+    {"key": "semiannual", "label": "반기", "cycle": "반기", "aliases": ("반기", "반기별", "반기1회", "연2회", "년2회")},
+    {"key": "yearly", "label": "매년", "cycle": "연간", "aliases": ("연", "년", "연간", "매년", "연1회", "년1회", "년1회이상")},
+    {"key": "ongoing", "label": "상시", "cycle": "상시", "aliases": ("상시", "지속")},
+    {"key": "irregular", "label": "비정기", "cycle": None, "aliases": ()},
+)
+WORK_CADENCE_BY_KEY = {item["key"]: item for item in WORK_CADENCES}
 DASHBOARD_TASK_TYPES = (
     {"label": "대표이사님 수명업무", "type_name": "대표이사님 수명업무", "tone": "executive"},
     {"label": "루틴업무", "type_name": "루틴", "tone": "routine"},
@@ -48,6 +59,45 @@ DASHBOARD_TASK_TYPES = (
     {"label": "주요업무", "type_name": "주요", "tone": "major"},
 )
 DASHBOARD_DEPARTMENT_ORDER = ("재무운영팀", "인사총무팀", "보안전산팀")
+
+
+def normalize_cadence_value(value):
+    return str(value or "").replace(" ", "").strip()
+
+
+def task_cadence_key(task):
+    for cadence in WORK_CADENCES:
+        if cadence["cycle"] and task.repeat_cycle == cadence["cycle"]:
+            return cadence["key"]
+    raw_values = {
+        normalize_cadence_value(task.source_frequency),
+        normalize_cadence_value(task.repeat_detail),
+    }
+    for cadence in WORK_CADENCES:
+        if raw_values.intersection(cadence["aliases"]):
+            return cadence["key"]
+    return "irregular"
+
+
+def task_cadence_condition(cadence_key):
+    known_conditions = []
+    normalized_frequency = func.replace(func.coalesce(Task.source_frequency, ""), " ", "")
+    normalized_detail = func.replace(func.coalesce(Task.repeat_detail, ""), " ", "")
+    for cadence in WORK_CADENCES:
+        if cadence["key"] == "irregular":
+            continue
+        conditions = [Task.repeat_cycle == cadence["cycle"]]
+        if cadence["aliases"]:
+            conditions.extend(
+                (
+                    normalized_frequency.in_(cadence["aliases"]),
+                    normalized_detail.in_(cadence["aliases"]),
+                )
+            )
+        known_conditions.append((cadence["key"], or_(*conditions)))
+    if cadence_key == "irregular":
+        return ~or_(*(condition for _, condition in known_conditions))
+    return dict(known_conditions)[cadence_key]
 
 
 def utcnow():
@@ -233,6 +283,23 @@ class Task(db.Model):
     @property
     def display_assignees(self):
         return self.source_assignees or self.assignee.name
+
+    @property
+    def cadence_key(self):
+        return task_cadence_key(self)
+
+    @property
+    def cadence_label(self):
+        return WORK_CADENCE_BY_KEY[self.cadence_key]["label"]
+
+    @property
+    def cadence_detail(self):
+        source_value = self.source_frequency or self.repeat_detail
+        if source_value:
+            return source_value
+        if self.repeat_cycle != "없음":
+            return self.repeat_cycle
+        return None
 
     @property
     def is_source_import(self):
@@ -490,6 +557,16 @@ def build_task_type_summaries(tasks, departments):
             }
         )
     return summaries
+
+
+def build_cadence_summaries(tasks):
+    return [
+        {
+            **cadence,
+            "count": sum(1 for task in tasks if task.cadence_key == cadence["key"]),
+        }
+        for cadence in WORK_CADENCES
+    ]
 
 
 def refresh_overdue_tasks():
@@ -978,6 +1055,7 @@ def create_app(test_config=None):
         assignee_id = request.args.get("assignee_id", type=int)
         status = request.args.get("status", "")
         task_type = request.args.get("task_type", "")
+        cadence = request.args.get("cadence", "")
         start = request.args.get("start", "")
         end = request.args.get("end", "")
         if keyword:
@@ -1003,6 +1081,10 @@ def create_app(test_config=None):
             query = query.where(Task.target_date >= date.fromisoformat(start))
         if end:
             query = query.where(Task.target_date <= date.fromisoformat(end))
+        cadence_base_query = query
+        cadence_tasks = db.session.scalars(cadence_base_query).unique().all()
+        if cadence in WORK_CADENCE_BY_KEY:
+            query = query.where(task_cadence_condition(cadence))
         page = max(request.args.get("page", 1, type=int), 1)
         pagination = db.paginate(query.order_by(Task.target_date, Task.id), page=page, per_page=20, error_out=False)
         departments_query = select(Department).where(Department.active.is_(True))
@@ -1030,6 +1112,9 @@ def create_app(test_config=None):
             departments=departments,
             employees=db.session.scalars(employees_query.order_by(Employee.name)).all(),
             department_summaries=build_department_summaries(departments, all_visible_tasks),
+            cadence_summaries=build_cadence_summaries(cadence_tasks),
+            cadence_total=len(cadence_tasks),
+            selected_cadence=cadence if cadence in WORK_CADENCE_BY_KEY else "",
             journal_selectable_ids=journal_selectable_ids,
             can_view_all_tasks=current_user.role.data_scope == "all",
         )
