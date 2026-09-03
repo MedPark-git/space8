@@ -15,6 +15,7 @@ from app import (  # noqa: E402
     AuditLog,
     Department,
     Employee,
+    PASSWORD_MIN_LENGTH,
     REGISTRATION_PASSWORD_MIN_LENGTH,
     Role,
     Schedule,
@@ -216,14 +217,15 @@ class EmployeeRegistrationTests(unittest.TestCase):
         self.assertIsNone(employee.hire_date)
         self.assertTrue(employee.must_change_password)
 
-    def test_admin_direct_registration_keeps_ten_character_minimum(self):
+    def test_admin_direct_registration_accepts_eight_character_password(self):
+        self.assertEqual(PASSWORD_MIN_LENGTH, 8)
         self.assertEqual(self.login("admin1", "AdminPass123").status_code, 302)
         response = self.client.post(
             "/admin/employees",
             data={
                 "action": "create",
-                "login_id": "directshort",
-                "name": "짧은비밀번호",
+                "login_id": "directeight",
+                "name": "8자비밀번호",
                 "department_id": str(self.department_id),
                 "position": "팀원",
                 "role_id": str(self.member_role_id),
@@ -233,11 +235,59 @@ class EmployeeRegistrationTests(unittest.TestCase):
             follow_redirects=True,
         )
         self.assertEqual(response.status_code, 200)
-        self.assertIn("초기 비밀번호".encode(), response.data)
-        self.assertIn("10자 이상".encode(), response.data)
-        self.assertIsNone(
-            db.session.scalar(db.select(Employee).where(Employee.login_id == "directshort"))
+        employee = db.session.scalar(db.select(Employee).where(Employee.login_id == "directeight"))
+        self.assertIsNotNone(employee)
+        self.assertTrue(employee.check_password("Pass1234"))
+        self.assertIn("영문·숫자 포함 8자 이상".encode(), response.data)
+
+    def test_admin_direct_registration_rejects_seven_character_password(self):
+        self.assertEqual(self.login("admin1", "AdminPass123").status_code, 302)
+        response = self.client.post(
+            "/admin/employees",
+            data={
+                "action": "create",
+                "login_id": "directseven",
+                "name": "7자비밀번호",
+                "department_id": str(self.department_id),
+                "position": "팀원",
+                "role_id": str(self.member_role_id),
+                "hire_date": "",
+                "password": "Pass123",
+            },
+            follow_redirects=True,
         )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("초기 비밀번호".encode(), response.data)
+        self.assertIn("8자 이상".encode(), response.data)
+        self.assertIsNone(
+            db.session.scalar(db.select(Employee).where(Employee.login_id == "directseven"))
+        )
+
+    def test_employee_password_change_accepts_eight_and_rejects_seven_characters(self):
+        self.assertEqual(self.login("member1", "MemberPass123").status_code, 302)
+        rejected = self.client.post(
+            "/change-password",
+            data={
+                "current_password": "MemberPass123",
+                "new_password": "Pass123",
+                "confirm_password": "Pass123",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(rejected.status_code, 200)
+        self.assertIn("8자 이상".encode(), rejected.data)
+        self.assertTrue(db.session.get(Employee, self.member.id).check_password("MemberPass123"))
+
+        accepted = self.client.post(
+            "/change-password",
+            data={
+                "current_password": "MemberPass123",
+                "new_password": "Pass1234",
+                "confirm_password": "Pass1234",
+            },
+        )
+        self.assertEqual(accepted.status_code, 302)
+        self.assertTrue(db.session.get(Employee, self.member.id).check_password("Pass1234"))
 
     def test_pending_account_is_not_available_as_task_or_schedule_assignee(self):
         self.assertEqual(self.register().status_code, 302)

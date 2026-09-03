@@ -45,7 +45,7 @@
         <label>권한<select name="role_id">{% for item in roles %}<option value="{{ item.id }}">{{ item.name }}</option>{% endfor %}</select></label>
         <label>연락처(선택)<input name="phone" placeholder="010-0000-0000"></label>
         <label>입사일(선택)<input type="date" name="hire_date"></label>
-        <label class="span-2">초기 비밀번호<input type="password" name="password" minlength="10" placeholder="영문·숫자 포함 10자 이상" required></label>
+        <label class="span-2">초기 비밀번호<input type="password" name="password" minlength="{{ PASSWORD_MIN_LENGTH }}" placeholder="영문·숫자 포함 {{ PASSWORD_MIN_LENGTH }}자 이상" required></label>
       </div>
       <div class="dialog-actions"><button class="button ghost" type="button" data-close>취소</button><button class="button primary" type="submit">계정 등록</button></div>
     </form>
