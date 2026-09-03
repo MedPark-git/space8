@@ -242,6 +242,39 @@ class TaskDeleteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertNotIn("주요", db.session.get(Task, self.finance_task_id).type_names)
 
+    def test_member_can_bulk_register_task_in_calendar(self):
+        self.login("member1")
+        response = self.client.post(
+            "/tasks/bulk-calendar",
+            data={"task_ids": [str(self.security_task_id)], "return_to": "/tasks"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        task = db.session.get(Task, self.security_task_id)
+        self.assertTrue(task.calendar_selected)
+        self.assertTrue(task.calendar_included)
+        audit = db.session.scalar(
+            db.select(AuditLog).where(AuditLog.action == "TASK_BULK_CALENDAR_ADD")
+        )
+        self.assertEqual(audit.details["registered_task_ids"], [self.security_task_id])
+
+    def test_bulk_calendar_registration_is_idempotent(self):
+        self.login("member1")
+        payload = {"task_ids": [str(self.security_task_id)]}
+        self.assertEqual(self.client.post("/tasks/bulk-calendar", data=payload).status_code, 302)
+        self.assertEqual(self.client.post("/tasks/bulk-calendar", data=payload).status_code, 302)
+        self.assertTrue(db.session.get(Task, self.security_task_id).calendar_selected)
+
+    def test_department_manager_cannot_bulk_register_other_department_calendar(self):
+        self.login("lead1")
+        response = self.client.post(
+            "/tasks/bulk-calendar",
+            data={"task_ids": [str(self.finance_task_id)]},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(db.session.get(Task, self.finance_task_id).calendar_selected)
+
     def test_team_lead_can_bulk_delete_own_department_tasks(self):
         extra_task = self.create_task("보안 일괄 삭제 대상", self.security, self.users["member1"])
         db.session.commit()
@@ -292,11 +325,13 @@ class TaskDeleteTests(unittest.TestCase):
     def test_task_list_shows_bulk_actions_by_permission(self):
         self.login("admin1")
         admin_page = self.client.get("/tasks")
+        self.assertIn(b'data-bulk-calendar', admin_page.data)
         self.assertIn(b'data-bulk-major', admin_page.data)
         self.assertIn(b'data-bulk-delete', admin_page.data)
 
         self.login("member1")
         member_page = self.client.get("/tasks")
+        self.assertIn(b'data-bulk-calendar', member_page.data)
         self.assertIn(b'data-bulk-major', member_page.data)
         self.assertNotIn(b'data-bulk-delete', member_page.data)
 

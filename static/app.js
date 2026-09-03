@@ -22,10 +22,12 @@ const initBulkJournal = (root = document) => {
   const selectAll = root.querySelector("[data-check-all]");
   const taskChecks = [...root.querySelectorAll("[data-task-check]:not(:disabled)")];
   const bulkButton = root.querySelector("[data-bulk-journal]");
+  const calendarButton = root.querySelector("[data-bulk-calendar]");
   const majorButton = root.querySelector("[data-bulk-major]");
   const deleteButton = root.querySelector("[data-bulk-delete]");
   const actions = [
     { button: bulkButton, permission: "journalSelectable", emptyLabel: "업무일지에 일괄 담기", selectedLabel: "업무일지에 담기" },
+    { button: calendarButton, permission: "calendarSelectable", emptyLabel: "일정(캘린더) 등록", selectedLabel: "캘린더 등록" },
     { button: majorButton, permission: "majorSelectable", emptyLabel: "주요업무 등록", selectedLabel: "주요업무 등록" },
     { button: deleteButton, permission: "deletable", emptyLabel: "선택 업무 삭제", selectedLabel: "삭제" },
   ];

@@ -1273,8 +1273,11 @@ def create_app(test_config=None):
             task.id for task in pagination.items if can_write_department(task.department_id)
         }
         major_selectable_ids = {task.id for task in pagination.items if can_edit_task(task)}
+        calendar_selectable_ids = {task.id for task in pagination.items if can_edit_task(task)}
         deletable_task_ids = {task.id for task in pagination.items if can_delete_task(task)}
-        selectable_task_ids = journal_selectable_ids | major_selectable_ids | deletable_task_ids
+        selectable_task_ids = (
+            journal_selectable_ids | major_selectable_ids | calendar_selectable_ids | deletable_task_ids
+        )
         return render_template(
             "tasks.html",
             mode="list",
@@ -1287,6 +1290,7 @@ def create_app(test_config=None):
             selected_cadence=cadence if cadence in WORK_CADENCE_BY_KEY else "",
             journal_selectable_ids=journal_selectable_ids,
             major_selectable_ids=major_selectable_ids,
+            calendar_selectable_ids=calendar_selectable_ids,
             deletable_task_ids=deletable_task_ids,
             selectable_task_ids=selectable_task_ids,
             can_view_all_tasks=current_user.role.data_scope == "all",
@@ -1362,6 +1366,45 @@ def create_app(test_config=None):
         flash(
             f"선택한 업무 {len(task_ids)}건 중 {len(added_task_ids)}건을 주요업무에 추가했습니다. "
             "기존 업무 분류는 유지됩니다.",
+            "success",
+        )
+        return_to = request.form.get("return_to", "")
+        if return_to and urlparse(return_to).netloc == "":
+            return redirect(return_to)
+        return redirect(url_for("task_list"))
+
+    @app.post("/tasks/bulk-calendar")
+    @login_required
+    def task_bulk_calendar():
+        task_ids = {int(item) for item in request.form.getlist("task_ids") if item.isdigit()}
+        if not task_ids:
+            flash("일정(캘린더)에 등록할 업무를 선택해 주세요.", "danger")
+            return redirect(url_for("task_list"))
+        selected_tasks = db.session.scalars(
+            visible_task_query(current_user).where(Task.id.in_(task_ids)).order_by(Task.id)
+        ).all()
+        if len(selected_tasks) != len(task_ids) or any(not can_edit_task(task) for task in selected_tasks):
+            abort(403)
+        registered_task_ids = []
+        for task in selected_tasks:
+            if task.calendar_selected:
+                continue
+            task.calendar_selected = True
+            task.updated_at = utcnow()
+            registered_task_ids.append(task.id)
+        audit(
+            "TASK_BULK_CALENDAR_ADD",
+            "tasks:bulk",
+            {
+                "requested": len(task_ids),
+                "registered": len(registered_task_ids),
+                "task_ids": sorted(task_ids),
+                "registered_task_ids": registered_task_ids,
+            },
+        )
+        db.session.commit()
+        flash(
+            f"선택한 업무 {len(task_ids)}건 중 {len(registered_task_ids)}건을 일정(캘린더)에 등록했습니다.",
             "success",
         )
         return_to = request.form.get("return_to", "")
