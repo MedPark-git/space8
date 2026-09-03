@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}{{ '비밀번호 변경' if mode == 'change' else '로그인' }} · MedPark{% endblock %}
+{% block title %}{{ '비밀번호 변경' if mode == 'change' else ('임직원 등록 신청' if mode == 'register' else '로그인') }} · MedPark{% endblock %}
 {% block body_class %}auth-page{% endblock %}
 {% block content %}
-<section class="auth-card">
+<section class="auth-card {{ 'auth-register-card' if mode == 'register' }}">
   <div class="auth-intro">
     <span class="eyebrow">MEDPARK BUSINESS MANAGEMENT</span>
     <h1>경영사업본부<br>루틴·주요업무 현황</h1>
@@ -22,16 +22,35 @@
         <small>영문과 숫자를 포함하여 10자 이상</small>
         <button class="button primary wide" type="submit">비밀번호 변경</button>
       </form>
+    {% elif mode == 'register' %}
+      <span class="eyebrow">EMPLOYEE REGISTRATION</span>
+      <h2>임직원 계정 등록 신청</h2>
+      <p>신청 후 관리자 승인이 완료되면 로그인할 수 있습니다.</p>
+      <form method="post" class="auth-register-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>계정 ID<input type="text" name="login_id" minlength="4" maxlength="30" value="{{ request.form.get('login_id', '') }}" placeholder="아마란스 계정 ID" required autofocus><small>아마란스에서 사용하는 계정 ID를 입력하세요.</small></label>
+        <label>성명<input name="name" value="{{ request.form.get('name', '') }}" required></label>
+        <label>부서(팀)<select name="department_id" required><option value="" disabled {{ 'selected' if not request.form.get('department_id') }}>부서(팀)를 선택하세요</option>{% for item in employee_departments %}<option value="{{ item.id }}" {{ 'selected' if request.form.get('department_id') == item.id|string }}>{{ item.name }}</option>{% endfor %}</select></label>
+        <label>직급<select name="position" required><option value="" disabled {{ 'selected' if not request.form.get('position') }}>직급을 선택하세요</option>{% for position in employee_positions %}<option value="{{ position }}" {{ 'selected' if request.form.get('position') == position }}>{{ position }}</option>{% endfor %}</select></label>
+        <label>사번(선택)<input name="employee_no" value="{{ request.form.get('employee_no', '') }}"></label>
+        <label>입사일(선택)<input type="date" name="hire_date" value="{{ request.form.get('hire_date', '') }}"></label>
+        <label>이메일(선택)<input type="email" name="email" value="{{ request.form.get('email', '') }}"></label>
+        <label>연락처(선택)<input name="phone" value="{{ request.form.get('phone', '') }}" placeholder="010-0000-0000"></label>
+        <label>비밀번호<input type="password" name="password" minlength="10" autocomplete="new-password" placeholder="영문·숫자 포함 10자 이상" required></label>
+        <label>비밀번호 확인<input type="password" name="confirm_password" minlength="10" autocomplete="new-password" required></label>
+        <div class="auth-register-actions span-2"><a class="button ghost" href="{{ url_for('login') }}">로그인으로 돌아가기</a><button class="button primary" type="submit">등록 신청</button></div>
+      </form>
     {% else %}
       <span class="eyebrow">EMPLOYEE LOGIN</span>
       <h2>로그인</h2>
-      <p>관리자가 등록한 임직원 계정으로 로그인해 주세요.</p>
+      <p>승인 완료된 임직원 계정으로 로그인해 주세요.</p>
       <form method="post" class="stack-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>로그인 ID<input type="text" name="login_id" required autocomplete="username" autofocus></label>
         <label>비밀번호<input type="password" name="password" required autocomplete="current-password"></label>
         <button class="button primary wide" type="submit">로그인</button>
       </form>
+      <div class="auth-register-cta"><span>계정이 아직 없으신가요?</span><a href="{{ url_for('employee_registration') }}">임직원 계정 등록 신청</a><small>계정 ID에는 아마란스 계정을 입력해 주세요.</small></div>
     {% endif %}
   </div>
 </section>

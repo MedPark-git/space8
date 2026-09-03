@@ -9,23 +9,24 @@
     <div class="panel-head"><div><h2>임직원 관리</h2><p>계정 ID, 이름, 사번 또는 부서로 임직원을 찾을 수 있습니다.</p></div></div>
     <div class="employee-toolbar">
       <input type="search" placeholder="계정 ID, 이름, 사번, 부서 검색" aria-label="임직원 검색" data-employee-search>
-      <span class="employee-active-count"><i></i> 활성 임직원 <strong>{{ employees|selectattr('status', 'equalto', '재직')|list|length }}</strong>명</span>
+      <div class="employee-account-counts"><span class="employee-active-count"><i></i> 활성 임직원 <strong>{{ employees|selectattr('status', 'equalto', '재직')|selectattr('approval_status', 'equalto', '승인완료')|list|length }}</strong>명</span><span class="employee-pending-count">승인대기 <strong>{{ employees|selectattr('status', 'equalto', '재직')|selectattr('approval_status', 'equalto', '승인대기')|list|length }}</strong>명</span></div>
     </div>
-    <div class="table-wrap"><table><thead><tr><th>임직원</th><th>부서(팀)·직급</th><th>로그인ID</th><th>권한</th><th>상태</th><th>관리</th></tr></thead><tbody>
+    <div class="table-wrap"><table><thead><tr><th>임직원</th><th>부서(팀)·직급</th><th>로그인ID</th><th>권한</th><th>재직상태</th><th>계정승인</th><th>관리</th></tr></thead><tbody>
       {% for item in employees %}
       <tr data-employee-row data-search-text="{{ item.login_id }} {{ item.name }} {{ item.employee_no or '' }} {{ item.department.name }} {{ item.position or '' }}">
         <td><strong>{{ item.name }}</strong><small>{{ item.employee_no or '-' }}</small></td>
         <td>{{ item.department.name }}<small>{{ item.position or '-' }}</small></td>
         <td>{{ item.login_id }}</td><td>{{ item.role.name }}</td>
-        <td><span class="status {{ 'done' if item.status=='재직' else 'hold' }}">{{ item.status }}</span></td>
+        <td><span class="status {{ 'done' if item.status=='재직' else 'hold' }}">{{ item.status }}</span></td><td><span class="status {{ 'done' if item.approval_status=='승인완료' else 'hold' }}">{{ item.approval_status }}</span></td>
         <td><div class="button-row">
+          {% if item.status == '재직' and item.approval_status == '승인대기' %}<form method="post" onsubmit="return confirm('이 임직원 계정 등록 신청을 승인하시겠습니까?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="employee_id" value="{{ item.id }}"><button class="button primary small" name="action" value="approve">승인</button></form>{% endif %}
           <button class="button ghost small" type="button" data-dialog="employee-edit-{{ item.id }}">정보 수정</button>
-          <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="employee_id" value="{{ item.id }}"><button class="button ghost small" name="action" value="{{ 'terminate' if item.status=='재직' else 'reactivate' }}">{{ '퇴사처리' if item.status=='재직' else '재등록' }}</button></form>
+          {% if item.approval_status == '승인완료' %}<form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="employee_id" value="{{ item.id }}"><button class="button ghost small" name="action" value="{{ 'terminate' if item.status=='재직' else 'reactivate' }}">{{ '퇴사처리' if item.status=='재직' else '재등록' }}</button></form>{% endif %}
           {% if item.id != current_user.id and item.status != '삭제' %}<form method="post" onsubmit="return confirm('이 임직원 계정을 삭제하시겠습니까? 업무 및 감사 이력은 보존됩니다.')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="employee_id" value="{{ item.id }}"><button class="button ghost small" name="action" value="delete">삭제</button></form>{% endif %}
         </div></td>
       </tr>
       {% endfor %}
-      <tr class="employee-search-empty" data-employee-search-empty hidden><td colspan="6" class="empty">검색 결과가 없습니다.</td></tr>
+      <tr class="employee-search-empty" data-employee-search-empty hidden><td colspan="7" class="empty">검색 결과가 없습니다.</td></tr>
     </tbody></table></div>
   </article>
   <dialog id="employee-register-dialog" class="employee-register-dialog">
@@ -35,7 +36,7 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="action" value="create">
       <div class="form-grid employee-register-grid">
-        <label>계정 ID<input name="login_id" minlength="4" maxlength="30" placeholder="영문·숫자 4~30자" required></label>
+        <label>계정 ID<input name="login_id" minlength="4" maxlength="30" placeholder="아마란스 계정 ID" required><small>아마란스에서 사용하는 계정 ID를 입력하세요.</small></label>
         <label>성명<input name="name" placeholder="성명" required></label>
         <label>사번(선택)<input name="employee_no" placeholder="사번"></label>
         <label>부서(팀)<select name="department_id" required><option value="" selected disabled>부서(팀)를 선택하세요</option>{% for item in employee_departments %}<option value="{{ item.id }}">{{ item.name }}</option>{% endfor %}</select></label>
@@ -43,7 +44,7 @@
         <label>이메일(선택)<input type="email" name="email" placeholder="name@company.com"></label>
         <label>권한<select name="role_id">{% for item in roles %}<option value="{{ item.id }}">{{ item.name }}</option>{% endfor %}</select></label>
         <label>연락처(선택)<input name="phone" placeholder="010-0000-0000"></label>
-        <label>입사일<input type="date" name="hire_date" value="{{ today }}"></label>
+        <label>입사일(선택)<input type="date" name="hire_date"></label>
         <label class="span-2">초기 비밀번호<input type="password" name="password" minlength="10" placeholder="영문·숫자 포함 10자 이상" required></label>
       </div>
       <div class="dialog-actions"><button class="button ghost" type="button" data-close>취소</button><button class="button primary" type="submit">계정 등록</button></div>
@@ -59,7 +60,7 @@
         <input type="hidden" name="action" value="update">
         <input type="hidden" name="employee_id" value="{{ item.id }}">
         <div class="form-grid employee-register-grid">
-          <label>계정 ID<input name="login_id" minlength="4" maxlength="30" value="{{ item.login_id }}" required></label>
+          <label>계정 ID<input name="login_id" minlength="4" maxlength="30" value="{{ item.login_id }}" required><small>아마란스에서 사용하는 계정 ID를 입력하세요.</small></label>
           <label>성명<input name="name" value="{{ item.name }}" required></label>
           <label>사번(선택)<input name="employee_no" value="{{ item.employee_no or '' }}"></label>
           <label>부서(팀)<select name="department_id" required>{% for department in employee_departments %}<option value="{{ department.id }}" {{ 'selected' if item.department_id == department.id }}>{{ department.name }}</option>{% endfor %}</select></label>
@@ -67,11 +68,11 @@
           <label>이메일(선택)<input type="email" name="email" value="{{ item.email or '' }}"></label>
           <label>권한<select name="role_id" required>{% for role in roles %}<option value="{{ role.id }}" {{ 'selected' if item.role_id == role.id }}>{{ role.name }}</option>{% endfor %}</select></label>
           <label>연락처(선택)<input name="phone" value="{{ item.phone or '' }}" placeholder="010-0000-0000"></label>
-          <label>입사일<input type="date" name="hire_date" value="{{ item.hire_date.isoformat() if item.hire_date else '' }}"></label>
+          <label>입사일(선택)<input type="date" name="hire_date" value="{{ item.hire_date.isoformat() if item.hire_date else '' }}"></label>
         </div>
         <div class="dialog-actions"><button class="button ghost" type="button" data-close>취소</button><button class="button primary" type="submit">정보 저장</button></div>
       </form>
-      {% if item.status == '재직' %}
+      {% if item.status == '재직' and item.approval_status == '승인완료' %}
       <form method="post" class="password-reset-panel" onsubmit="return confirm('비밀번호를 초기화하고 계정 잠금을 해제하시겠습니까?')">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="action" value="password_reset">
@@ -102,7 +103,7 @@
 <section class="content-grid admin-grid"><article class="panel span-2"><div class="table-wrap"><table><thead><tr><th>게시판명</th><th>유형</th><th>접근 권한</th><th>상태</th></tr></thead><tbody>{% for item in boards %}<tr><td>{{ item.name }}</td><td>{{ item.board_type }}</td><td>{{ item.roles|map(attribute='name')|join(', ') }}</td><td>{{ '사용' if item.active else '중지' }}</td></tr>{% endfor %}</tbody></table></div></article><aside class="panel"><h2>게시판 생성</h2><form method="post" class="stack-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>게시판명<input name="name" required></label><label>유형<select name="board_type"><option>일반</option><option>공지</option><option>자료실</option></select></label><label class="inline-check"><input type="checkbox" name="allow_comments"> 댓글 허용</label><fieldset><legend>접근 권한</legend>{% for item in roles %}<label class="inline-check"><input type="checkbox" name="role_ids" value="{{ item.id }}"> {{ item.name }}</label>{% endfor %}</fieldset><button class="button primary wide">생성</button></form></aside></section>
 
 {% elif section == 'schedules' %}
-<section class="content-grid admin-grid"><article class="panel span-2"><div class="table-wrap"><table><thead><tr><th>일자</th><th>일정</th><th>범위</th><th>부서/담당자</th></tr></thead><tbody>{% for item in schedules %}<tr><td>{{ item.schedule_date }}</td><td>{{ item.title }}{% if item.is_holiday %}<span class="tag">공휴일</span>{% endif %}</td><td>{{ item.scope }}</td><td>{{ item.department.name if item.department else '-' }} / {{ item.assignee.name if item.assignee else '-' }}</td></tr>{% else %}<tr><td colspan="4" class="empty">등록된 일정이 없습니다.</td></tr>{% endfor %}</tbody></table></div></article><aside class="panel"><h2>일정 등록</h2><form method="post" class="stack-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>일정명<input name="title" required></label><label>일자<input type="date" name="schedule_date" required value="{{ today }}"></label><label>범위<select name="scope"><option>전사</option><option>부서</option><option>개인</option></select></label><label>부서<select name="department_id"><option value="">없음</option>{% for item in departments %}<option value="{{ item.id }}">{{ item.name }}</option>{% endfor %}</select></label><label>담당자<select name="assignee_id"><option value="">없음</option>{% for item in employees if item.status=='재직' %}<option value="{{ item.id }}">{{ item.name }}</option>{% endfor %}</select></label><label>메모<textarea name="memo"></textarea></label><label class="inline-check"><input type="checkbox" name="is_holiday"> 공휴일/공통 휴무</label><button class="button primary wide">등록</button></form></aside></section>
+<section class="content-grid admin-grid"><article class="panel span-2"><div class="table-wrap"><table><thead><tr><th>일자</th><th>일정</th><th>범위</th><th>부서/담당자</th></tr></thead><tbody>{% for item in schedules %}<tr><td>{{ item.schedule_date }}</td><td>{{ item.title }}{% if item.is_holiday %}<span class="tag">공휴일</span>{% endif %}</td><td>{{ item.scope }}</td><td>{{ item.department.name if item.department else '-' }} / {{ item.assignee.name if item.assignee else '-' }}</td></tr>{% else %}<tr><td colspan="4" class="empty">등록된 일정이 없습니다.</td></tr>{% endfor %}</tbody></table></div></article><aside class="panel"><h2>일정 등록</h2><form method="post" class="stack-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>일정명<input name="title" required></label><label>일자<input type="date" name="schedule_date" required value="{{ today }}"></label><label>범위<select name="scope"><option>전사</option><option>부서</option><option>개인</option></select></label><label>부서<select name="department_id"><option value="">없음</option>{% for item in departments %}<option value="{{ item.id }}">{{ item.name }}</option>{% endfor %}</select></label><label>담당자<select name="assignee_id"><option value="">없음</option>{% for item in employees if item.status=='재직' and item.approval_status=='승인완료' %}<option value="{{ item.id }}">{{ item.name }}</option>{% endfor %}</select></label><label>메모<textarea name="memo"></textarea></label><label class="inline-check"><input type="checkbox" name="is_holiday"> 공휴일/공통 휴무</label><button class="button primary wide">등록</button></form></aside></section>
 
 {% else %}
 <section class="panel"><div class="table-wrap"><table><thead><tr><th>일시</th><th>사용자</th><th>액션</th><th>대상</th><th>IP</th></tr></thead><tbody>{% for item in audits %}<tr><td>{{ item.created_at.strftime('%Y.%m.%d %H:%M:%S') }}</td><td>{{ item.user.name if item.user else '시스템' }}</td><td>{{ item.action }}</td><td>{{ item.target }}</td><td>{{ item.ip_address or '-' }}</td></tr>{% else %}<tr><td colspan="5" class="empty">기록이 없습니다.</td></tr>{% endfor %}</tbody></table></div></section>

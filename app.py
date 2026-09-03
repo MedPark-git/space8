@@ -25,7 +25,7 @@ from flask_migrate import Migrate, upgrade
 from flask_sqlalchemy import SQLAlchemy
 from flask_wtf.csrf import CSRFProtect
 from openpyxl import Workbook, load_workbook
-from sqlalchemy import UniqueConstraint, and_, func, or_, select, text, update
+from sqlalchemy import UniqueConstraint, and_, case, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -214,6 +214,12 @@ class Employee(UserMixin, db.Model):
     termination_date = db.Column(db.Date, nullable=True)
     reregistered_at = db.Column(db.DateTime(timezone=True), nullable=True)
     role_id = db.Column(db.Integer, db.ForeignKey("roles.id"), nullable=False)
+    approval_status = db.Column(
+        db.String(20), nullable=False, default="승인완료", server_default=text("'승인완료'")
+    )
+    approval_requested_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    approved_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    approved_by_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True)
     failed_login_count = db.Column(db.Integer, nullable=False, default=0)
     locked_until = db.Column(db.DateTime(timezone=True), nullable=True)
     must_change_password = db.Column(db.Boolean, nullable=False, default=True)
@@ -221,10 +227,11 @@ class Employee(UserMixin, db.Model):
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
     department = db.relationship("Department", backref="employees")
     role = db.relationship("Role", backref="employees")
+    approved_by = db.relationship("Employee", remote_side=[id], foreign_keys=[approved_by_id])
 
     @property
     def is_active(self):
-        return self.status == "재직"
+        return self.status == "재직" and self.approval_status == "승인완료"
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password, method="scrypt")
@@ -645,7 +652,11 @@ def visible_schedule_query(user):
     query = select(Schedule).where(Schedule.deleted_at.is_(None))
     if can_view_all_schedules(user):
         return query
-    department_employee_ids = select(Employee.id).where(Employee.department_id == user.department_id)
+    department_employee_ids = select(Employee.id).where(
+        Employee.department_id == user.department_id,
+        Employee.status == "재직",
+        Employee.approval_status == "승인완료",
+    )
     return query.where(
         or_(
             Schedule.scope == "전사",
@@ -1060,7 +1071,7 @@ def create_app(test_config=None):
 
     @app.before_request
     def enforce_authentication():
-        public_endpoints = {"login", "health", "static"}
+        public_endpoints = {"login", "employee_registration", "health", "static"}
         if request.endpoint not in public_endpoints and not current_user.is_authenticated:
             return redirect(url_for("login", next=request.full_path))
         if current_user.is_authenticated:
@@ -1098,7 +1109,11 @@ def create_app(test_config=None):
                 db.session.scalar(
                     select(func.count(Employee.id))
                     .join(Role, Employee.role_id == Role.id)
-                    .where(Role.name == "관리자", Employee.status == "재직")
+                    .where(
+                        Role.name == "관리자",
+                        Employee.status == "재직",
+                        Employee.approval_status == "승인완료",
+                    )
                 )
             )
             reset_hash = os.getenv("ADMIN_PASSWORD_RESET_HASH")
@@ -1140,7 +1155,7 @@ def create_app(test_config=None):
             if locked_until and locked_until > now:
                 flash("로그인 실패 횟수 초과로 계정이 잠겼습니다. 잠시 후 다시 시도해 주세요.", "danger")
                 return render_template("auth.html", mode="login"), 429
-            if not user or not user.is_active or not user.check_password(password):
+            if not user or not user.check_password(password):
                 if user:
                     user.failed_login_count += 1
                     if user.failed_login_count >= MAX_FAILED_LOGIN_ATTEMPTS:
@@ -1149,6 +1164,12 @@ def create_app(test_config=None):
                     db.session.commit()
                 flash("아이디 또는 비밀번호를 확인해 주세요.", "danger")
                 return render_template("auth.html", mode="login"), 401
+            if user.approval_status == "승인대기":
+                flash("임직원 계정 등록 신청이 관리자 승인 대기 중입니다.", "danger")
+                return render_template("auth.html", mode="login"), 403
+            if not user.is_active:
+                flash("사용할 수 없는 계정입니다. 관리자에게 문의해 주세요.", "danger")
+                return render_template("auth.html", mode="login"), 403
             user.failed_login_count = 0
             user.locked_until = None
             user.last_login_at = now
@@ -1161,6 +1182,101 @@ def create_app(test_config=None):
                 return redirect(next_url)
             return redirect(url_for("dashboard"))
         return render_template("auth.html", mode="login")
+
+    @app.route("/register", methods=["GET", "POST"])
+    def employee_registration():
+        if current_user.is_authenticated:
+            return redirect(url_for("dashboard"))
+        departments = db.session.scalars(
+            select(Department).where(
+                Department.active.is_(True),
+                Department.name.in_(EMPLOYEE_DEPARTMENTS),
+            )
+        ).all()
+        departments_by_name = {department.name: department for department in departments}
+        departments = [
+            departments_by_name[name] for name in EMPLOYEE_DEPARTMENTS if name in departments_by_name
+        ]
+        if request.method == "POST":
+            try:
+                login_id = request.form.get("login_id", "").strip()
+                if not re.fullmatch(r"[A-Za-z0-9]{4,30}", login_id):
+                    raise ValueError("계정 ID는 아마란스 계정의 영문·숫자 4~30자로 입력해 주세요.")
+                name = request.form.get("name", "").strip()
+                if not name:
+                    raise ValueError("성명을 입력해 주세요.")
+                department_id = request.form.get("department_id", type=int)
+                department = db.session.get(Department, department_id) if department_id else None
+                if not department or not department.active or department.name not in EMPLOYEE_DEPARTMENTS:
+                    raise ValueError("부서(팀)를 선택해 주세요.")
+                position = request.form.get("position", "").strip()
+                if position not in EMPLOYEE_POSITIONS:
+                    raise ValueError("직급을 선택해 주세요.")
+                password = request.form.get("password", "")
+                if len(password) < 10 or not any(character.isalpha() for character in password) or not any(
+                    character.isdigit() for character in password
+                ):
+                    raise ValueError("비밀번호는 영문과 숫자를 포함하여 10자 이상이어야 합니다.")
+                if password != request.form.get("confirm_password", ""):
+                    raise ValueError("비밀번호 확인이 일치하지 않습니다.")
+                default_role = db.session.scalar(select(Role).where(Role.name == "팀원"))
+                if not default_role:
+                    raise ValueError("기본 권한을 확인할 수 없습니다. 관리자에게 문의해 주세요.")
+                employee = Employee(
+                    name=name,
+                    employee_no=request.form.get("employee_no", "").strip() or None,
+                    department_id=department.id,
+                    position=position,
+                    email=request.form.get("email", "").strip() or None,
+                    phone=request.form.get("phone", "").strip() or None,
+                    login_id=login_id,
+                    role_id=default_role.id,
+                    status="재직",
+                    hire_date=(
+                        date.fromisoformat(request.form["hire_date"])
+                        if request.form.get("hire_date")
+                        else None
+                    ),
+                    password_hash="",
+                    must_change_password=False,
+                    approval_status="승인대기",
+                    approval_requested_at=utcnow(),
+                )
+                employee.set_password(password)
+                db.session.add(employee)
+                db.session.flush()
+                audit(
+                    "EMPLOYEE_REGISTRATION_REQUEST",
+                    f"employee:{employee.id}",
+                    {
+                        "login_id": employee.login_id,
+                        "department_id": employee.department_id,
+                        "default_role": default_role.name,
+                        "hire_date_provided": employee.hire_date is not None,
+                    },
+                    user_id=None,
+                )
+                db.session.commit()
+                flash("임직원 계정 등록 신청이 완료되었습니다. 관리자 승인 후 로그인할 수 있습니다.", "success")
+                return redirect(url_for("login"))
+            except IntegrityError:
+                db.session.rollback()
+                flash("계정 ID, 사번 또는 이메일이 이미 등록되어 있습니다.", "danger")
+            except ValueError as exc:
+                db.session.rollback()
+                flash(str(exc), "danger")
+            return render_template(
+                "auth.html",
+                mode="register",
+                employee_departments=departments,
+                employee_positions=EMPLOYEE_POSITIONS,
+            ), 400
+        return render_template(
+            "auth.html",
+            mode="register",
+            employee_departments=departments,
+            employee_positions=EMPLOYEE_POSITIONS,
+        )
 
     @app.post("/logout")
     @login_required
@@ -1290,7 +1406,9 @@ def create_app(test_config=None):
         page = max(request.args.get("page", 1, type=int), 1)
         pagination = db.paginate(query.order_by(Task.target_date, Task.id), page=page, per_page=20, error_out=False)
         departments_query = select(Department).where(Department.active.is_(True))
-        employees_query = select(Employee).where(Employee.status == "재직")
+        employees_query = select(Employee).where(
+            Employee.status == "재직", Employee.approval_status == "승인완료"
+        )
         if current_user.role.data_scope != "all":
             departments_query = departments_query.where(Department.id == current_user.department_id)
             employees_query = employees_query.where(Employee.department_id == current_user.department_id)
@@ -1548,7 +1666,9 @@ def create_app(test_config=None):
 
     def task_form_handler(task):
         departments_query = select(Department).where(Department.active.is_(True))
-        employees_query = select(Employee).where(Employee.status == "재직")
+        employees_query = select(Employee).where(
+            Employee.status == "재직", Employee.approval_status == "승인완료"
+        )
         if not current_user.role.allows("task_manage_all"):
             departments_query = departments_query.where(Department.id == current_user.department_id)
             employees_query = employees_query.where(Employee.department_id == current_user.department_id)
@@ -1563,7 +1683,13 @@ def create_app(test_config=None):
                 assignee_id = int(request.form["assignee_id"])
                 department = db.session.get(Department, department_id)
                 assignee = db.session.get(Employee, assignee_id)
-                if not department or not department.active or not assignee or assignee.status != "재직":
+                if (
+                    not department
+                    or not department.active
+                    or not assignee
+                    or assignee.status != "재직"
+                    or assignee.approval_status != "승인완료"
+                ):
                     abort(400)
                 if not can_write_department(department_id):
                     abort(403)
@@ -1732,7 +1858,11 @@ def create_app(test_config=None):
                 employee = db.session.scalar(select(Employee).where(Employee.login_id == str(row[4]).strip()))
                 if not department or not employee:
                     raise ValueError(f"{created + 2}행의 부서 또는 담당자를 찾을 수 없습니다.")
-                if employee.status != "재직" or employee.department_id != department.id:
+                if (
+                    employee.status != "재직"
+                    or employee.approval_status != "승인완료"
+                    or employee.department_id != department.id
+                ):
                     raise ValueError(f"{created + 2}행의 담당자는 해당 부서의 재직자여야 합니다.")
                 if not can_write_department(department.id):
                     raise ValueError(f"{created + 2}행은 소속 부서 업무만 등록할 수 있습니다.")
@@ -1989,7 +2119,9 @@ def create_app(test_config=None):
         tasks_by_id = {task.id: task for task in automatic_tasks}
         tasks_by_id.update({task.id: task for task in selected_tasks})
         tasks = sorted(tasks_by_id.values(), key=lambda task: (task.target_date, task.id))
-        employees_query = select(Employee).where(Employee.status == "재직")
+        employees_query = select(Employee).where(
+            Employee.status == "재직", Employee.approval_status == "승인완료"
+        )
         if current_user.role.data_scope == "department":
             employees_query = employees_query.where(Employee.department_id == current_user.department_id)
         elif current_user.role.data_scope == "own":
@@ -2074,10 +2206,31 @@ def create_app(test_config=None):
     def handle_admin_post(section):
         action = request.form.get("action", "create")
         if section == "employees":
+            if action == "approve":
+                employee = db.get_or_404(Employee, int(request.form["employee_id"]))
+                if employee.approval_status != "승인대기":
+                    raise ValueError("승인 대기 중인 계정만 승인할 수 있습니다.")
+                if employee.status != "재직":
+                    raise ValueError("재직 상태의 계정만 승인할 수 있습니다.")
+                employee.approval_status = "승인완료"
+                employee.approved_at = utcnow()
+                employee.approved_by_id = current_user.id
+                employee.failed_login_count = 0
+                employee.locked_until = None
+                audit(
+                    "EMPLOYEE_REGISTRATION_APPROVE",
+                    f"employee:{employee.id}",
+                    {
+                        "login_id": employee.login_id,
+                        "department_id": employee.department_id,
+                        "role_id": employee.role_id,
+                    },
+                )
+                return f"{employee.name} 임직원의 계정 등록 신청을 승인했습니다."
             if action == "password_reset":
                 employee = db.get_or_404(Employee, int(request.form["employee_id"]))
-                if employee.status != "재직":
-                    raise ValueError("재직 중인 임직원 계정만 비밀번호를 초기화할 수 있습니다.")
+                if employee.status != "재직" or employee.approval_status != "승인완료":
+                    raise ValueError("승인 완료된 재직 임직원 계정만 비밀번호를 초기화할 수 있습니다.")
                 password = request.form.get("new_password", "")
                 confirm_password = request.form.get("confirm_password", "")
                 if len(password) < TEMP_PASSWORD_MIN_LENGTH or not any(character.isalpha() for character in password) or not any(
@@ -2165,6 +2318,8 @@ def create_app(test_config=None):
                 return
             if action in {"terminate", "reactivate"}:
                 employee = db.get_or_404(Employee, int(request.form["employee_id"]))
+                if employee.approval_status != "승인완료":
+                    raise ValueError("승인 대기 계정은 퇴사·재등록 처리할 수 없습니다.")
                 if employee.id == current_user.id and action == "terminate":
                     raise ValueError("현재 로그인한 관리자 계정은 종료할 수 없습니다.")
                 employee.status = "퇴사" if action == "terminate" else "재직"
@@ -2189,24 +2344,38 @@ def create_app(test_config=None):
             position = request.form.get("position", "").strip()
             if position not in EMPLOYEE_POSITIONS:
                 raise ValueError("직급은 부서장, 팀장, 팀원 중에서 선택해 주세요.")
+            role_id = request.form.get("role_id", type=int)
+            role = db.session.get(Role, role_id) if role_id else None
+            if not role:
+                raise ValueError("권한을 선택해 주세요.")
+            name = request.form.get("name", "").strip()
+            if not name:
+                raise ValueError("성명을 입력해 주세요.")
             employee = Employee(
-                name=request.form["name"].strip(),
+                name=name,
                 employee_no=request.form.get("employee_no", "").strip() or None,
                 department_id=department_id,
                 position=position,
                 email=request.form.get("email", "").strip() or None,
                 phone=request.form.get("phone", "").strip() or None,
                 login_id=login_id,
-                role_id=int(request.form["role_id"]),
+                role_id=role.id,
                 status="재직",
-                hire_date=date.fromisoformat(request.form["hire_date"]) if request.form.get("hire_date") else date.today(),
+                hire_date=date.fromisoformat(request.form["hire_date"]) if request.form.get("hire_date") else None,
                 password_hash="",
                 must_change_password=True,
+                approval_status="승인완료",
+                approved_at=utcnow(),
+                approved_by_id=current_user.id,
             )
             employee.set_password(password)
             db.session.add(employee)
             db.session.flush()
-            audit("EMPLOYEE_CREATE", f"employee:{employee.id}")
+            audit(
+                "EMPLOYEE_CREATE",
+                f"employee:{employee.id}",
+                {"source": "admin", "approved_directly": True, "hire_date_provided": employee.hire_date is not None},
+            )
         elif section == "roles":
             permissions = {name: True for name in request.form.getlist("permissions")}
             role = Role(name=request.form["name"].strip(), data_scope=request.form["data_scope"], permissions=permissions)
@@ -2240,15 +2409,21 @@ def create_app(test_config=None):
                 raise ValueError("일정 범위가 올바르지 않습니다.")
             department_id = int(request.form["department_id"]) if request.form.get("department_id") else None
             assignee_id = int(request.form["assignee_id"]) if request.form.get("assignee_id") else None
+            assignee = db.session.get(Employee, assignee_id) if assignee_id else None
+            if assignee_id and (
+                not assignee
+                or assignee.status != "재직"
+                or assignee.approval_status != "승인완료"
+            ):
+                raise ValueError("승인 완료된 재직 임직원만 일정 담당자로 지정할 수 있습니다.")
             if scope == "부서" and not department_id:
                 raise ValueError("부서 일정은 부서를 선택해야 합니다.")
             if scope == "개인" and not assignee_id:
                 raise ValueError("개인 일정은 담당자를 선택해야 합니다.")
             if scope == "개인" and not department_id:
-                assignee = db.session.get(Employee, assignee_id)
-                if not assignee:
-                    raise ValueError("일정 담당자를 찾을 수 없습니다.")
                 department_id = assignee.department_id
+            if assignee and department_id and assignee.department_id != department_id:
+                raise ValueError("일정 담당자는 선택한 부서의 임직원이어야 합니다.")
             schedule = Schedule(
                 title=request.form["title"].strip(),
                 schedule_date=date.fromisoformat(request.form["schedule_date"]),
@@ -2277,7 +2452,22 @@ def create_app(test_config=None):
             "departments": db.session.scalars(
                 select(Department).where(Department.active.is_(True)).order_by(Department.id)
             ).all(),
-            "employees": db.session.scalars(select(Employee).order_by(Employee.status, Employee.name)).all(),
+            "employees": db.session.scalars(
+                select(Employee).order_by(
+                    case(
+                        (
+                            and_(
+                                Employee.status == "재직",
+                                Employee.approval_status == "승인대기",
+                            ),
+                            0,
+                        ),
+                        else_=1,
+                    ),
+                    Employee.status,
+                    Employee.name,
+                )
+            ).all(),
         }
         if section == "employees":
             departments_by_name = {item.name: item for item in common["departments"]}
