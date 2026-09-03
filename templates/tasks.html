@@ -41,13 +41,13 @@
 </section>
 <section class="panel cadence-panel" aria-labelledby="cadence-title">
   <div class="cadence-heading"><div><h2 id="cadence-title">업무주기별 보기</h2><p>등록된 반복주기와 원본 주기를 기준으로 업무를 나누어 조회합니다.</p></div></div>
-  <form method="get" class="cadence-tabs">
+  <form method="get" class="cadence-tabs" data-cadence-form>
     {% for field_name in ['q', 'department_id', 'assignee_id', 'task_type', 'status', 'start', 'end'] %}{% if request.args.get(field_name) %}<input type="hidden" name="{{ field_name }}" value="{{ request.args.get(field_name) }}">{% endif %}{% endfor %}
     <button type="submit" name="cadence" value="" class="{{ 'active' if not selected_cadence }}" aria-pressed="{{ 'true' if not selected_cadence else 'false' }}"><span>전체</span><b>{{ cadence_total }}</b></button>
     {% for item in cadence_summaries %}<button type="submit" name="cadence" value="{{ item.key }}" class="{{ 'active' if selected_cadence == item.key }}" aria-pressed="{{ 'true' if selected_cadence == item.key else 'false' }}"><span>{{ item.label }}</span><b>{{ item.count }}</b></button>{% endfor %}
   </form>
 </section>
-<section class="panel filter-panel">
+<section class="panel filter-panel" data-task-filter-panel>
   <form method="get" class="filter-grid">
     <label>검색<input type="search" name="q" value="{{ request.args.get('q','') }}" placeholder="제목 또는 내용"></label>
     <label>부서<select name="department_id"><option value="">전체</option>{% for item in departments %}<option value="{{ item.id }}" {{ 'selected' if request.args.get('department_id') == item.id|string }}>{{ item.name }}</option>{% endfor %}</select></label>
@@ -60,7 +60,7 @@
     <button class="button primary" type="submit">조회</button>
   </form>
 </section>
-<section class="panel">
+<section class="panel" data-task-results aria-live="polite">
   <div class="panel-head"><div><h2>각 부서 업무 목록</h2><p>총 {{ pagination.total }}건 · 체크한 업무는 담당자별 오늘 업무일지에 담깁니다.</p></div><div class="button-row"><button class="button primary small" type="submit" form="bulkJournalForm" data-bulk-journal disabled>업무일지에 일괄 담기</button><a class="button ghost small" href="{{ url_for('task_excel_template') }}">엑셀 템플릿</a><button class="button ghost small" type="button" data-dialog="excelUpload">엑셀 업로드</button></div></div>
   <form id="bulkJournalForm" method="post" action="{{ url_for('journal_add_tasks') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
