@@ -61,6 +61,7 @@ DASHBOARD_TASK_TYPES = (
 )
 DASHBOARD_DEPARTMENT_ORDER = ("재무운영팀", "인사총무팀", "보안전산팀")
 EMPLOYEE_DEPARTMENTS = ("보안전산팀", "인사총무팀", "재무운영팀")
+EMPLOYEE_POSITIONS = ("부서장", "팀장", "팀원")
 
 
 def normalize_cadence_value(value):
@@ -1538,11 +1539,14 @@ def create_app(test_config=None):
             department = db.session.get(Department, department_id)
             if not department or not department.active or department.name not in EMPLOYEE_DEPARTMENTS:
                 raise ValueError("등록 가능한 부서(팀)는 보안전산팀, 인사총무팀, 재무운영팀입니다.")
+            position = request.form.get("position", "").strip()
+            if position not in EMPLOYEE_POSITIONS:
+                raise ValueError("직급은 부서장, 팀장, 팀원 중에서 선택해 주세요.")
             employee = Employee(
                 name=request.form["name"].strip(),
                 employee_no=request.form.get("employee_no", "").strip() or None,
                 department_id=department_id,
-                position=request.form.get("position", "").strip(),
+                position=position,
                 email=request.form.get("email", "").strip() or None,
                 phone=request.form.get("phone", "").strip() or None,
                 login_id=login_id,
@@ -1633,6 +1637,7 @@ def create_app(test_config=None):
             common["employee_departments"] = [
                 departments_by_name[name] for name in EMPLOYEE_DEPARTMENTS if name in departments_by_name
             ]
+            common["employee_positions"] = EMPLOYEE_POSITIONS
         if section == "menus":
             common["menus"] = db.session.scalars(select(Menu).order_by(Menu.sort_order)).all()
         elif section == "boards":
