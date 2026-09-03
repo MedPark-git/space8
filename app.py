@@ -193,6 +193,10 @@ class Department(db.Model):
     active = db.Column(db.Boolean, nullable=False, default=True)
     parent = db.relationship("Department", remote_side=[id], backref="children")
 
+    @property
+    def active_task_count(self):
+        return sum(task.deleted_at is None for task in self.tasks)
+
 
 class Employee(UserMixin, db.Model):
     __tablename__ = "employees"
@@ -278,9 +282,12 @@ class Task(db.Model):
     created_by_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    deleted_at = db.Column(db.DateTime(timezone=True), nullable=True, index=True)
+    deleted_by_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True)
     department = db.relationship("Department", backref="tasks")
     assignee = db.relationship("Employee", foreign_keys=[assignee_id], backref="assigned_tasks")
     creator = db.relationship("Employee", foreign_keys=[created_by_id], backref="created_tasks")
+    deleted_by = db.relationship("Employee", foreign_keys=[deleted_by_id])
     classifications = db.relationship("TaskClassification", cascade="all, delete-orphan", backref="task")
     daily_logs = db.relationship("TaskDailyLog", cascade="all, delete-orphan", backref="task")
 
@@ -376,7 +383,7 @@ def source_work_process_condition(task):
     identity = source_work_process_identity(task)
     if identity is None:
         return None
-    conditions = [Task.source_ref.is_not(None)]
+    conditions = [Task.source_ref.is_not(None), Task.deleted_at.is_(None)]
     for field, value in zip(SOURCE_WORK_PROCESS_IDENTITY_FIELDS, identity):
         column = getattr(Task, field)
         conditions.append(column.is_(None) if value is None else column == value)
@@ -403,7 +410,7 @@ def synchronize_existing_source_work_processes():
     """Backfill exact source groups from their most recently updated process."""
     source_tasks = db.session.scalars(
         select(Task)
-        .where(Task.source_ref.is_not(None))
+        .where(Task.source_ref.is_not(None), Task.deleted_at.is_(None))
         .order_by(Task.updated_at.desc(), Task.id.desc())
     ).all()
     groups = {}
@@ -556,7 +563,7 @@ def admin_required(permission):
 
 
 def visible_task_query(user):
-    query = select(Task)
+    query = select(Task).where(Task.deleted_at.is_(None))
     scope = user.role.data_scope
     if scope == "all":
         return query
@@ -566,6 +573,8 @@ def visible_task_query(user):
 
 
 def can_view_task_detail(task):
+    if task.deleted_at is not None:
+        return False
     return (
         current_user.role.data_scope == "all"
         or task.department_id == current_user.department_id
@@ -575,10 +584,29 @@ def can_view_task_detail(task):
 
 
 def can_edit_task(task):
+    if task.deleted_at is not None:
+        return False
     return current_user.role.allows("task_manage_all") or (
         current_user.role.allows("task_manage_department")
         and task.department_id == current_user.department_id
     )
+
+
+def can_delete_task(task):
+    if task.deleted_at is not None:
+        return False
+    if current_user.role.name == "관리자":
+        return True
+    return current_user.role.name in {"부서장", "팀장"} and task.department_id == current_user.department_id
+
+
+def get_active_task_or_404(task_id):
+    task = db.session.scalar(
+        select(Task).where(Task.id == task_id, Task.deleted_at.is_(None))
+    )
+    if not task:
+        abort(404)
+    return task
 
 
 def can_write_department(department_id):
@@ -671,7 +699,11 @@ def build_cadence_summaries(tasks):
 
 def refresh_overdue_tasks():
     overdue = db.session.scalars(
-        select(Task).where(Task.target_date < date.today(), Task.status == "진행중")
+        select(Task).where(
+            Task.deleted_at.is_(None),
+            Task.target_date < date.today(),
+            Task.status == "진행중",
+        )
     ).all()
     if not overdue:
         return
@@ -1240,6 +1272,7 @@ def create_app(test_config=None):
         journal_selectable_ids = {
             task.id for task in pagination.items if can_write_department(task.department_id)
         }
+        deletable_task_ids = {task.id for task in pagination.items if can_delete_task(task)}
         return render_template(
             "tasks.html",
             mode="list",
@@ -1251,6 +1284,7 @@ def create_app(test_config=None):
             cadence_total=len(cadence_tasks),
             selected_cadence=cadence if cadence in WORK_CADENCE_BY_KEY else "",
             journal_selectable_ids=journal_selectable_ids,
+            deletable_task_ids=deletable_task_ids,
             can_view_all_tasks=current_user.role.data_scope == "all",
         )
 
@@ -1262,10 +1296,34 @@ def create_app(test_config=None):
     @app.route("/tasks/<int:task_id>/edit", methods=["GET", "POST"])
     @login_required
     def task_edit(task_id):
-        task = db.get_or_404(Task, task_id)
+        task = get_active_task_or_404(task_id)
         if not can_edit_task(task):
             abort(403)
         return task_form_handler(task)
+
+    @app.post("/tasks/<int:task_id>/delete")
+    @login_required
+    def task_delete(task_id):
+        task = get_active_task_or_404(task_id)
+        if not can_delete_task(task):
+            abort(403)
+        task.deleted_at = utcnow()
+        task.deleted_by_id = current_user.id
+        audit(
+            "TASK_DELETE",
+            f"task:{task.id}",
+            {
+                "title": task.title,
+                "department_id": task.department_id,
+                "history_preserved": True,
+            },
+        )
+        db.session.commit()
+        flash("업무가 삭제되었습니다. 기존 업무일지·회의·감사 이력은 보존됩니다.", "success")
+        return_to = request.form.get("return_to", "")
+        if return_to and urlparse(return_to).netloc == "":
+            return redirect(return_to)
+        return redirect(url_for("task_list"))
 
     def task_form_handler(task):
         departments_query = select(Department).where(Department.active.is_(True))
@@ -1360,7 +1418,7 @@ def create_app(test_config=None):
     @app.route("/tasks/<int:task_id>", methods=["GET", "POST"])
     @login_required
     def task_detail(task_id):
-        task = db.get_or_404(Task, task_id)
+        task = get_active_task_or_404(task_id)
         if not can_view_task_detail(task):
             abort(403)
         if request.method == "POST":
@@ -1377,7 +1435,14 @@ def create_app(test_config=None):
         status_logs = db.session.scalars(
             select(TaskStatusLog).where(TaskStatusLog.task_id == task.id).order_by(TaskStatusLog.changed_at.desc())
         ).all()
-        return render_template("tasks.html", mode="detail", task=task, status_logs=status_logs, can_edit=can_edit_task(task))
+        return render_template(
+            "tasks.html",
+            mode="detail",
+            task=task,
+            status_logs=status_logs,
+            can_edit=can_edit_task(task),
+            can_delete=can_delete_task(task),
+        )
 
     @app.get("/tasks/excel-template")
     @login_required
@@ -1591,14 +1656,24 @@ def create_app(test_config=None):
         automatic_tasks = db.session.scalars(
             select(Task)
             .join(TaskClassification)
-            .where(Task.assignee_id == employee_id, TaskClassification.name.in_(["주요", "일반"]), Task.start_date <= work_date, Task.target_date >= work_date)
+            .where(
+                Task.deleted_at.is_(None),
+                Task.assignee_id == employee_id,
+                TaskClassification.name.in_(["주요", "일반"]),
+                Task.start_date <= work_date,
+                Task.target_date >= work_date,
+            )
             .distinct()
             .order_by(Task.target_date)
         ).all()
         selected_tasks = db.session.scalars(
             select(Task)
             .join(WorkJournalItem, WorkJournalItem.task_id == Task.id)
-            .where(WorkJournalItem.work_date == work_date, WorkJournalItem.employee_id == employee_id)
+            .where(
+                Task.deleted_at.is_(None),
+                WorkJournalItem.work_date == work_date,
+                WorkJournalItem.employee_id == employee_id,
+            )
             .order_by(Task.target_date, Task.id)
         ).all()
         tasks_by_id = {task.id: task for task in automatic_tasks}
