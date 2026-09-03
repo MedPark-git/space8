@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-heading"><div><span class="eyebrow">CALENDAR</span><h1>일정(캘린더)</h1><p>{% if can_view_all_schedules %}관리자·부서장·팀장 권한으로 전체 부서 일정을 확인합니다.{% else %}전사 공통 일정과 소속 부서(팀)의 일정만 확인합니다.{% endif %}</p></div><a class="button ghost" href="{{ url_for('task_list') }}">게시판형 보기</a></div>
+<div class="page-heading"><div><span class="eyebrow">CALENDAR</span><h1>일정(캘린더)</h1><p>{% if can_view_all_schedules %}전체 부서의 선택 등록 업무와 자동 등록 업무를 확인합니다.{% else %}소속 부서(팀)의 선택 등록 업무와 자동 등록 업무를 확인합니다.{% endif %}</p></div><a class="button ghost" href="{{ url_for('task_list') }}">게시판형 보기</a></div>
 <section class="panel calendar-panel">
   <div class="calendar-head"><a href="{{ url_for('task_calendar', year=previous.year, month=previous.month) }}">← 이전달</a><h2>{{ year }}년 {{ month }}월</h2><a href="{{ url_for('task_calendar', year=next_month.year, month=next_month.month) }}">다음달 →</a></div>
   <div class="calendar-grid weekdays"><div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div></div>
@@ -22,7 +22,7 @@
     <tr>
       <td>{{ item_date }}</td>
       {% if kind == 'task' %}
-      <td><span class="tag">업무 목표일</span></td><td>{{ item.department.name }}</td><td><a class="task-title" href="{{ url_for('task_detail', task_id=item.id) }}">{{ item.title }}</a><small>{{ item.content or '-' }}</small></td><td>{{ item.assignee.name }}</td><td><span class="status {{ item.status_class }}">{{ item.status }}</span></td>
+      <td><span class="tag calendar-registration-tag active">{{ item.calendar_registration_label }}</span></td><td>{{ item.department.name }}</td><td><a class="task-title" href="{{ url_for('task_detail', task_id=item.id) }}">{{ item.title }}</a><small>{{ item.content or '-' }}</small></td><td>{{ item.assignee.name }}</td><td><span class="status {{ item.status_class }}">{{ item.status }}</span></td>
       {% else %}
       <td><span class="tag">등록 일정</span></td><td>{{ item.department.name if item.department else (item.assignee.department.name if item.assignee else '전사') }}</td><td><strong>{{ item.title }}</strong><small>{{ item.memo or '-' }}</small></td><td>{{ item.assignee.name if item.assignee else '-' }}</td><td>{{ item.scope }}{% if item.is_holiday %}<span class="tag">공휴일</span>{% endif %}</td>
       {% endif %}

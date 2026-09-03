@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block title %}경영사업본부 각 부서 업무 현황{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260903-employee-accounts') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260903-profile-calendar') }}">
 </head>
 <body class="{% block body_class %}{% endblock %}">
   {% if current_user.is_authenticated %}
@@ -21,7 +21,7 @@
       {% endfor %}
     </nav>
     <div class="user-menu">
-      <span><strong>{{ current_user.name }}</strong><small>{{ current_user.department.name }} · {{ current_user.role.name }}</small></span>
+      <a class="user-profile-link" href="{{ url_for('profile') }}" aria-label="{{ current_user.name }} 내 정보 수정"><strong>{{ current_user.name }}</strong><small>{{ current_user.department.name }} · {{ current_user.role.name }}</small></a>
       <form method="post" action="{{ url_for('logout') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="button ghost small" type="submit">로그아웃</button>

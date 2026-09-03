@@ -91,12 +91,17 @@
       <button class="button primary" type="submit">③ 엑셀 업무 등록</button>
     </form>
   </div>
-  <div class="excel-register-guide"><strong>등록 항목</strong><span>제목</span><span>내용</span><span>업무 분류</span><span>부서</span><span>담당자</span><span>착수일</span><span>목표일</span><span>상태</span><span>진행률</span><span>반복주기</span></div>
+  <div class="excel-register-guide"><strong>등록 항목</strong><span>제목</span><span>내용</span><span>업무 분류</span><span>부서</span><span>담당자</span><span>착수일</span><span>목표일</span><span>상태</span><span>진행률</span><span>반복주기</span><span>캘린더 등록</span></div>
 </section>
 <div class="section-divider"><span>또는 화면에서 직접 등록</span></div>
 {% endif %}
 <form method="post" class="panel form-panel"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="form-section"><h2>업무 분류 <em>복수 선택 가능</em></h2><div class="check-grid">{% for item in TASK_TYPES %}<label class="check-card"><input type="checkbox" name="task_types" value="{{ item }}" {{ 'checked' if task and item in task.type_names }}><span>{{ item }}</span></label>{% endfor %}</div></div>
+  <div class="form-section calendar-registration-section">
+    <h2>일정(캘린더) 등록</h2>
+    <label class="inline-check"><input type="checkbox" name="calendar_selected" value="1" {{ 'checked' if task and task.calendar_selected }}>이 업무의 목표일을 일정(캘린더)에 등록</label>
+    <p>루틴·일반업무는 위 항목을 선택한 경우에만 등록됩니다. 주요업무·대표이사님 수명업무는 선택 여부와 관계없이 자동 등록됩니다.</p>
+  </div>
   <div class="form-grid"><label class="span-2">업무 제목<input name="title" required maxlength="250" value="{{ task.title if task else '' }}"></label><label class="span-2">업무 내용<textarea name="content" rows="5">{{ task.content if task else '' }}</textarea></label>
     <label>부서<select name="department_id" required>{% for item in departments %}<option value="{{ item.id }}" {{ 'selected' if (task and task.department_id == item.id) or (not task and current_user.department_id == item.id) }}>{{ item.name }}</option>{% endfor %}</select></label>
     <label>담당자<select name="assignee_id" required>{% for item in employees %}<option value="{{ item.id }}" {{ 'selected' if (task and task.assignee_id == item.id) or (not task and current_user.id == item.id) }}>{{ item.name }} · {{ item.department.name }}</option>{% endfor %}</select></label>
@@ -111,7 +116,7 @@
 
 {% else %}
 <div class="page-heading"><div><span class="eyebrow">TASK #{{ task.id }}</span><h1>{{ task.title }}</h1><p>{{ task.department.name }} · {{ task.display_assignees }}</p></div><div class="button-row">{% if can_edit %}<a class="button primary" href="{{ url_for('task_edit', task_id=task.id) }}">수정</a>{% endif %}<a class="button ghost" href="{{ url_for('task_list') }}">목록</a></div></div>
-<section class="content-grid detail-grid"><article class="panel span-2"><div class="detail-meta"><div><small>분류</small><strong>{% for name in task.type_names %}<span class="tag">{{ name }}</span>{% endfor %}</strong></div><div><small>기간</small><strong>{{ task.start_date }} ~ {{ task.target_date }}</strong></div><div><small>진행률</small><strong>{{ task.progress }}%</strong></div><div><small>상태</small><strong><span class="status {{ task.status_class }}">{{ task.status }}</span></strong></div></div><div class="description">{{ task.content or '등록된 상세 내용이 없습니다.' }}</div></article>
+<section class="content-grid detail-grid"><article class="panel span-2"><div class="detail-meta"><div><small>분류</small><strong>{% for name in task.type_names %}<span class="tag">{{ name }}</span>{% endfor %}</strong></div><div><small>기간</small><strong>{{ task.start_date }} ~ {{ task.target_date }}</strong></div><div><small>일정(캘린더)</small><strong><span class="tag calendar-registration-tag {{ 'active' if task.calendar_included }}">{{ task.calendar_registration_label }}</span></strong></div><div><small>상태 / 진행률</small><strong><span class="status {{ task.status_class }}">{{ task.status }}</span> · {{ task.progress }}%</strong></div></div><div class="description">{{ task.content or '등록된 상세 내용이 없습니다.' }}</div></article>
 {% if task.is_source_import %}<section class="panel span-2"><div class="panel-head"><div><h2>원본 업무분장 정보</h2><p>{{ task.source_name }}</p></div></div><div class="detail-meta"><div><small>대분류</small><strong>{{ task.source_category }}</strong></div><div><small>세부구분</small><strong>{{ task.source_detail or '-' }}</strong></div><div><small>원본 담당자</small><strong>{{ task.source_assignees }}</strong></div><div><small>주기</small><strong>{{ task.source_frequency }}</strong></div></div></section>{% endif %}
 <aside class="panel"><h2>일일업무 기록</h2><form method="post" class="stack-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>작성일<input type="date" name="work_date" value="{{ today.isoformat() }}"></label><label>금일 진행 내용<textarea name="daily_log" rows="5" required></textarea></label><button class="button primary wide" type="submit">기록 저장</button></form></aside></section>
 <section class="panel"><div class="panel-head"><div><h2>일일업무 일지</h2><p>업무별 진행 기록</p></div></div><div class="timeline">{% for log in task.daily_logs|sort(attribute='created_at', reverse=true) %}<article><time>{{ log.work_date }}</time><div><strong>{{ log.author.name }}</strong><p>{{ log.content }}</p></div></article>{% else %}<p class="empty">등록된 업무일지가 없습니다.</p>{% endfor %}</div></section>

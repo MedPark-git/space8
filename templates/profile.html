@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}내 정보 수정 · MedPark{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><span class="eyebrow">MY PROFILE</span><h1>내 정보 수정</h1><p>본인의 기본 정보를 직접 관리합니다.</p></div>
+</div>
+<section class="panel form-panel">
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-section">
+      <h2>소속 및 권한 <em>관리자만 변경 가능</em></h2>
+      <div class="detail-meta">
+        <div><small>로그인 ID</small><strong>{{ current_user.login_id }}</strong></div>
+        <div><small>부서(팀)</small><strong>{{ current_user.department.name }}</strong></div>
+        <div><small>직급</small><strong>{{ current_user.position or '-' }}</strong></div>
+        <div><small>권한</small><strong>{{ current_user.role.name }}</strong></div>
+      </div>
+    </div>
+    <div class="form-section">
+      <h2>기본 정보</h2>
+      <div class="form-grid">
+        <label>성명<input name="name" value="{{ current_user.name }}" required></label>
+        <label>사번(선택)<input name="employee_no" value="{{ current_user.employee_no or '' }}"></label>
+        <label>이메일(선택)<input type="email" name="email" value="{{ current_user.email or '' }}"></label>
+        <label>연락처(선택)<input name="phone" value="{{ current_user.phone or '' }}" placeholder="010-0000-0000"></label>
+      </div>
+    </div>
+    <div class="form-actions"><a class="button ghost" href="{{ url_for('dashboard') }}">취소</a><button class="button primary" type="submit">정보 저장</button></div>
+  </form>
+</section>
+{% endblock %}

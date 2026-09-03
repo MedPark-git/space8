@@ -39,6 +39,7 @@ login_manager.login_view = "login"
 login_manager.login_message = "로그인이 필요합니다."
 
 TASK_TYPES = ("대표이사님 수명업무", "루틴", "일반", "주요")
+CALENDAR_AUTO_TASK_TYPES = ("대표이사님 수명업무", "주요")
 TASK_STATUSES = ("진행중", "완료", "지연", "보류")
 REPEAT_CYCLES = ("없음", "일간", "주간", "월간", "분기", "반기", "연간", "상시")
 STATUS_CLASS = {"진행중": "progress", "완료": "done", "지연": "delayed", "보류": "hold"}
@@ -253,6 +254,7 @@ class Task(db.Model):
     progress = db.Column(db.Integer, nullable=False, default=0)
     repeat_cycle = db.Column(db.String(20), nullable=False, default="없음")
     repeat_detail = db.Column(db.String(100), nullable=True)
+    calendar_selected = db.Column(db.Boolean, nullable=False, default=False, server_default=text("false"))
     source_ref = db.Column(db.String(100), unique=True, nullable=True, index=True)
     source_name = db.Column(db.String(255), nullable=True)
     source_sheet = db.Column(db.String(255), nullable=True)
@@ -272,6 +274,22 @@ class Task(db.Model):
     @property
     def type_names(self):
         return [item.name for item in self.classifications]
+
+    @property
+    def calendar_auto_included(self):
+        return any(name in CALENDAR_AUTO_TASK_TYPES for name in self.type_names)
+
+    @property
+    def calendar_included(self):
+        return self.calendar_auto_included or self.calendar_selected
+
+    @property
+    def calendar_registration_label(self):
+        if self.calendar_auto_included:
+            return "자동 등록"
+        if self.calendar_selected:
+            return "선택 등록"
+        return "미등록"
 
     @property
     def remaining_days(self):
@@ -1024,6 +1042,34 @@ def create_app(test_config=None):
                 return redirect(url_for("dashboard"))
         return render_template("auth.html", mode="change")
 
+    @app.route("/profile", methods=["GET", "POST"])
+    @login_required
+    def profile():
+        if request.method == "POST":
+            try:
+                name = request.form.get("name", "").strip()
+                if not name:
+                    raise ValueError("성명을 입력해 주세요.")
+                current_user.name = name
+                current_user.employee_no = request.form.get("employee_no", "").strip() or None
+                current_user.email = request.form.get("email", "").strip() or None
+                current_user.phone = request.form.get("phone", "").strip() or None
+                audit(
+                    "EMPLOYEE_SELF_UPDATE",
+                    f"employee:{current_user.id}",
+                    {"fields": ["name", "employee_no", "email", "phone"]},
+                )
+                db.session.commit()
+                flash("내 정보가 수정되었습니다.", "success")
+            except IntegrityError:
+                db.session.rollback()
+                flash("사번 또는 이메일이 이미 등록되어 있습니다.", "danger")
+            except ValueError as exc:
+                db.session.rollback()
+                flash(f"저장할 수 없습니다: {exc}", "danger")
+            return redirect(url_for("profile"))
+        return render_template("profile.html")
+
     @app.get("/")
     @login_required
     def dashboard():
@@ -1174,6 +1220,7 @@ def create_app(test_config=None):
                 target.progress = min(max(int(request.form.get("progress", 0)), 0), 100)
                 target.repeat_cycle = request.form.get("repeat_cycle", "없음") if request.form.get("repeat_cycle") in REPEAT_CYCLES else "없음"
                 target.repeat_detail = request.form.get("repeat_detail", "").strip()
+                target.calendar_selected = request.form.get("calendar_selected") == "1"
                 if target.status == "완료":
                     target.completed_date = target.completed_date or date.today()
                     target.progress = 100
@@ -1186,8 +1233,13 @@ def create_app(test_config=None):
                 else:
                     db.session.add(target)
                     db.session.flush()
-                    target.classifications.clear()
-                    target.classifications.extend(TaskClassification(name=name) for name in types)
+                    existing_classifications = {item.name: item for item in target.classifications}
+                    for name, classification in existing_classifications.items():
+                        if name not in types:
+                            target.classifications.remove(classification)
+                    for name in types:
+                        if name not in existing_classifications:
+                            target.classifications.append(TaskClassification(name=name))
                     if old_status != target.status:
                         db.session.add(
                             TaskStatusLog(
@@ -1197,7 +1249,15 @@ def create_app(test_config=None):
                                 changed_by_id=current_user.id,
                             )
                         )
-                    audit("TASK_UPDATE" if task else "TASK_CREATE", f"task:{target.id}", {"title": target.title})
+                    audit(
+                        "TASK_UPDATE" if task else "TASK_CREATE",
+                        f"task:{target.id}",
+                        {
+                            "title": target.title,
+                            "calendar_selected": target.calendar_selected,
+                            "calendar_registration": target.calendar_registration_label,
+                        },
+                    )
                     db.session.commit()
                     flash("업무가 저장되었습니다.", "success")
                     return redirect(url_for("task_detail", task_id=target.id))
@@ -1231,9 +1291,10 @@ def create_app(test_config=None):
         wb = Workbook()
         ws = wb.active
         ws.title = "업무등록"
-        headers = ["제목", "내용", "분류", "부서", "담당자 로그인ID", "착수일", "목표일", "상태", "진행률", "반복주기"]
+        headers = ["제목", "내용", "분류", "부서", "담당자 로그인ID", "착수일", "목표일", "상태", "진행률", "반복주기", "캘린더 등록(선택)"]
         ws.append(headers)
-        ws.append(["월간 비용 마감", "마감자료 취합", "루틴|주요", current_user.department.name, current_user.login_id, date.today(), date.today() + timedelta(days=7), "진행중", 10, "월간"])
+        ws.append(["월간 비용 마감", "마감자료 취합", "루틴", current_user.department.name, current_user.login_id, date.today(), date.today() + timedelta(days=7), "진행중", 10, "월간", "Y"])
+        ws.append(["월간 핵심 과제", "주요업무는 선택값과 관계없이 자동 등록", "주요", current_user.department.name, current_user.login_id, date.today(), date.today() + timedelta(days=14), "진행중", 0, "없음", "N"])
         ws.freeze_panes = "A2"
         for column in ws.columns:
             ws.column_dimensions[column[0].column_letter].width = max(len(str(cell.value or "")) for cell in column) + 3
@@ -1257,6 +1318,7 @@ def create_app(test_config=None):
             expected = ["제목", "내용", "분류", "부서", "담당자 로그인ID", "착수일", "목표일", "상태", "진행률", "반복주기"]
             if headers[: len(expected)] != expected:
                 raise ValueError("템플릿 헤더가 일치하지 않습니다.")
+            calendar_column = headers.index("캘린더 등록(선택)") if "캘린더 등록(선택)" in headers else None
             created = 0
             for row in ws.iter_rows(min_row=2, values_only=True):
                 if not row[0]:
@@ -1286,6 +1348,12 @@ def create_app(test_config=None):
                     status=str(row[7] or "진행중") if str(row[7] or "진행중") in TASK_STATUSES else "진행중",
                     progress=min(max(int(row[8] or 0), 0), 100),
                     repeat_cycle=str(row[9] or "없음") if str(row[9] or "없음") in REPEAT_CYCLES else "없음",
+                    calendar_selected=(
+                        str(row[calendar_column] or "").strip().lower()
+                        in {"y", "yes", "1", "true", "예", "등록", "표시", "o", "○"}
+                        if calendar_column is not None and calendar_column < len(row)
+                        else False
+                    ),
                     created_by_id=current_user.id,
                 )
                 uploaded_types = [item.strip() for item in str(row[2]).split("|")]
@@ -1331,7 +1399,15 @@ def create_app(test_config=None):
         first = date(year, month, 1)
         last = date(year, month, calendar.monthrange(year, month)[1])
         tasks = db.session.scalars(
-            visible_task_query(current_user).where(Task.target_date.between(first, last)).order_by(Task.target_date)
+            visible_task_query(current_user)
+            .where(
+                Task.target_date.between(first, last),
+                or_(
+                    Task.calendar_selected.is_(True),
+                    Task.classifications.any(TaskClassification.name.in_(CALENDAR_AUTO_TASK_TYPES)),
+                ),
+            )
+            .order_by(Task.target_date)
         ).all()
         schedules_query = visible_schedule_query(current_user).where(Schedule.schedule_date.between(first, last))
         schedules = db.session.scalars(schedules_query.order_by(Schedule.schedule_date)).all()
@@ -1506,7 +1582,10 @@ def create_app(test_config=None):
                 handle_admin_post(section)
                 db.session.commit()
                 flash("관리자 설정이 저장되었습니다.", "success")
-            except (ValueError, IntegrityError) as exc:
+            except IntegrityError:
+                db.session.rollback()
+                flash("로그인 ID, 사번 또는 이메일이 이미 등록되어 있습니다.", "danger")
+            except ValueError as exc:
                 db.session.rollback()
                 flash(f"저장할 수 없습니다: {exc}", "danger")
             return redirect(url_for("admin", section=section))
@@ -1516,6 +1595,70 @@ def create_app(test_config=None):
     def handle_admin_post(section):
         action = request.form.get("action", "create")
         if section == "employees":
+            if action == "update":
+                employee = db.get_or_404(Employee, int(request.form["employee_id"]))
+                login_id = request.form.get("login_id", "").strip()
+                if not re.fullmatch(r"[A-Za-z0-9]{4,30}", login_id):
+                    raise ValueError("계정 ID는 영문과 숫자만 사용하여 4~30자로 입력해 주세요.")
+                name = request.form.get("name", "").strip()
+                if not name:
+                    raise ValueError("성명을 입력해 주세요.")
+                department_id = request.form.get("department_id", type=int)
+                department = db.session.get(Department, department_id) if department_id else None
+                if not department or not department.active or department.name not in EMPLOYEE_DEPARTMENTS:
+                    raise ValueError("등록 가능한 부서(팀)는 보안전산팀, 인사총무팀, 재무운영팀입니다.")
+                position = request.form.get("position", "").strip()
+                if position not in EMPLOYEE_POSITIONS:
+                    raise ValueError("직급은 부서장, 팀장, 팀원 중에서 선택해 주세요.")
+                role_id = request.form.get("role_id", type=int)
+                role = db.session.get(Role, role_id) if role_id else None
+                if not role:
+                    raise ValueError("권한을 선택해 주세요.")
+                if employee.id == current_user.id and role.name != "관리자":
+                    raise ValueError("현재 로그인한 관리자 계정의 관리자 권한은 해제할 수 없습니다.")
+                employee.name = name
+                employee.employee_no = request.form.get("employee_no", "").strip() or None
+                employee.department_id = department_id
+                employee.position = position
+                employee.email = request.form.get("email", "").strip() or None
+                employee.phone = request.form.get("phone", "").strip() or None
+                employee.login_id = login_id
+                employee.role_id = role_id
+                employee.hire_date = (
+                    date.fromisoformat(request.form["hire_date"])
+                    if request.form.get("hire_date")
+                    else None
+                )
+                audit(
+                    "EMPLOYEE_UPDATE",
+                    f"employee:{employee.id}",
+                    {
+                        "fields": [
+                            "name",
+                            "employee_no",
+                            "department_id",
+                            "position",
+                            "email",
+                            "phone",
+                            "login_id",
+                            "role_id",
+                            "hire_date",
+                        ]
+                    },
+                )
+                return
+            if action == "delete":
+                employee = db.get_or_404(Employee, int(request.form["employee_id"]))
+                if employee.id == current_user.id:
+                    raise ValueError("현재 로그인한 관리자 본인 계정은 삭제할 수 없습니다.")
+                if employee.status == "삭제":
+                    raise ValueError("이미 삭제된 임직원 계정입니다.")
+                employee.status = "삭제"
+                employee.termination_date = date.today()
+                employee.failed_login_count = 0
+                employee.locked_until = None
+                audit("EMPLOYEE_DELETE", f"employee:{employee.id}")
+                return
             if action in {"terminate", "reactivate"}:
                 employee = db.get_or_404(Employee, int(request.form["employee_id"]))
                 if employee.id == current_user.id and action == "terminate":
