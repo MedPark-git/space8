@@ -51,25 +51,40 @@
   </dialog>
   {% for item in employees %}
   <dialog id="employee-edit-{{ item.id }}" class="employee-register-dialog">
-    <form method="post" class="dialog-form">
+    <div class="dialog-form">
       <div class="dialog-head"><div><span class="eyebrow">ADMIN ONLY</span><h2>임직원 정보 수정</h2></div><button type="button" data-close aria-label="닫기">×</button></div>
       <p>{{ item.name }} 임직원의 계정·소속·권한 정보를 수정합니다.</p>
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="action" value="update">
-      <input type="hidden" name="employee_id" value="{{ item.id }}">
-      <div class="form-grid employee-register-grid">
-        <label>계정 ID<input name="login_id" minlength="4" maxlength="30" value="{{ item.login_id }}" required></label>
-        <label>성명<input name="name" value="{{ item.name }}" required></label>
-        <label>사번(선택)<input name="employee_no" value="{{ item.employee_no or '' }}"></label>
-        <label>부서(팀)<select name="department_id" required>{% for department in employee_departments %}<option value="{{ department.id }}" {{ 'selected' if item.department_id == department.id }}>{{ department.name }}</option>{% endfor %}</select></label>
-        <label>직급<select name="position" required><option value="" disabled {{ 'selected' if item.position not in employee_positions }}>직급을 선택하세요</option>{% for position in employee_positions %}<option value="{{ position }}" {{ 'selected' if item.position == position }}>{{ position }}</option>{% endfor %}</select></label>
-        <label>이메일(선택)<input type="email" name="email" value="{{ item.email or '' }}"></label>
-        <label>권한<select name="role_id" required>{% for role in roles %}<option value="{{ role.id }}" {{ 'selected' if item.role_id == role.id }}>{{ role.name }}</option>{% endfor %}</select></label>
-        <label>연락처(선택)<input name="phone" value="{{ item.phone or '' }}" placeholder="010-0000-0000"></label>
-        <label>입사일<input type="date" name="hire_date" value="{{ item.hire_date.isoformat() if item.hire_date else '' }}"></label>
-      </div>
-      <div class="dialog-actions"><button class="button ghost" type="button" data-close>취소</button><button class="button primary" type="submit">정보 저장</button></div>
-    </form>
+      <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="update">
+        <input type="hidden" name="employee_id" value="{{ item.id }}">
+        <div class="form-grid employee-register-grid">
+          <label>계정 ID<input name="login_id" minlength="4" maxlength="30" value="{{ item.login_id }}" required></label>
+          <label>성명<input name="name" value="{{ item.name }}" required></label>
+          <label>사번(선택)<input name="employee_no" value="{{ item.employee_no or '' }}"></label>
+          <label>부서(팀)<select name="department_id" required>{% for department in employee_departments %}<option value="{{ department.id }}" {{ 'selected' if item.department_id == department.id }}>{{ department.name }}</option>{% endfor %}</select></label>
+          <label>직급<select name="position" required><option value="" disabled {{ 'selected' if item.position not in employee_positions }}>직급을 선택하세요</option>{% for position in employee_positions %}<option value="{{ position }}" {{ 'selected' if item.position == position }}>{{ position }}</option>{% endfor %}</select></label>
+          <label>이메일(선택)<input type="email" name="email" value="{{ item.email or '' }}"></label>
+          <label>권한<select name="role_id" required>{% for role in roles %}<option value="{{ role.id }}" {{ 'selected' if item.role_id == role.id }}>{{ role.name }}</option>{% endfor %}</select></label>
+          <label>연락처(선택)<input name="phone" value="{{ item.phone or '' }}" placeholder="010-0000-0000"></label>
+          <label>입사일<input type="date" name="hire_date" value="{{ item.hire_date.isoformat() if item.hire_date else '' }}"></label>
+        </div>
+        <div class="dialog-actions"><button class="button ghost" type="button" data-close>취소</button><button class="button primary" type="submit">정보 저장</button></div>
+      </form>
+      {% if item.status == '재직' %}
+      <form method="post" class="password-reset-panel" onsubmit="return confirm('비밀번호를 초기화하고 계정 잠금을 해제하시겠습니까?')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="password_reset">
+        <input type="hidden" name="employee_id" value="{{ item.id }}">
+        <div class="password-reset-head"><div><strong>비밀번호 초기화</strong><small>임시 비밀번호 설정과 동시에 로그인 잠금이 해제됩니다.</small></div><span>다음 로그인 시 변경 필수</span></div>
+        <div class="form-grid">
+          <label>새 임시 비밀번호<input type="password" name="new_password" minlength="8" placeholder="영문·숫자 포함 8자 이상" autocomplete="new-password" required></label>
+          <label>임시 비밀번호 확인<input type="password" name="confirm_password" minlength="8" placeholder="동일하게 다시 입력" autocomplete="new-password" required></label>
+        </div>
+        <div class="dialog-actions"><button class="button reset-password" type="submit">비밀번호 초기화 및 잠금 해제</button></div>
+      </form>
+      {% endif %}
+    </div>
   </dialog>
   {% endfor %}
 </section>

@@ -63,6 +63,9 @@ DASHBOARD_TASK_TYPES = (
 DASHBOARD_DEPARTMENT_ORDER = ("재무운영팀", "인사총무팀", "보안전산팀")
 EMPLOYEE_DEPARTMENTS = ("보안전산팀", "인사총무팀", "재무운영팀")
 EMPLOYEE_POSITIONS = ("부서장", "팀장", "팀원")
+MAX_FAILED_LOGIN_ATTEMPTS = 5
+ACCOUNT_LOCK_MINUTES = 15
+TEMP_PASSWORD_MIN_LENGTH = 8
 
 
 def normalize_cadence_value(value):
@@ -106,6 +109,14 @@ def task_cadence_condition(cadence_key):
 
 def utcnow():
     return datetime.now(timezone.utc)
+
+
+def as_utc(value):
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def build_database_uri():
@@ -987,14 +998,15 @@ def create_app(test_config=None):
             password = request.form.get("password", "")
             user = db.session.scalar(select(Employee).where(Employee.login_id == login_id))
             now = utcnow()
-            if user and user.locked_until and user.locked_until > now:
+            locked_until = as_utc(user.locked_until) if user else None
+            if locked_until and locked_until > now:
                 flash("로그인 실패 횟수 초과로 계정이 잠겼습니다. 잠시 후 다시 시도해 주세요.", "danger")
                 return render_template("auth.html", mode="login"), 429
             if not user or not user.is_active or not user.check_password(password):
                 if user:
                     user.failed_login_count += 1
-                    if user.failed_login_count >= 5:
-                        user.locked_until = now + timedelta(minutes=15)
+                    if user.failed_login_count >= MAX_FAILED_LOGIN_ATTEMPTS:
+                        user.locked_until = now + timedelta(minutes=ACCOUNT_LOCK_MINUTES)
                         user.failed_login_count = 0
                     db.session.commit()
                 flash("아이디 또는 비밀번호를 확인해 주세요.", "danger")
@@ -1579,9 +1591,9 @@ def create_app(test_config=None):
             abort(404)
         if request.method == "POST":
             try:
-                handle_admin_post(section)
+                success_message = handle_admin_post(section)
                 db.session.commit()
-                flash("관리자 설정이 저장되었습니다.", "success")
+                flash(success_message or "관리자 설정이 저장되었습니다.", "success")
             except IntegrityError:
                 db.session.rollback()
                 flash("로그인 ID, 사번 또는 이메일이 이미 등록되어 있습니다.", "danger")
@@ -1595,6 +1607,31 @@ def create_app(test_config=None):
     def handle_admin_post(section):
         action = request.form.get("action", "create")
         if section == "employees":
+            if action == "password_reset":
+                employee = db.get_or_404(Employee, int(request.form["employee_id"]))
+                if employee.status != "재직":
+                    raise ValueError("재직 중인 임직원 계정만 비밀번호를 초기화할 수 있습니다.")
+                password = request.form.get("new_password", "")
+                confirm_password = request.form.get("confirm_password", "")
+                if len(password) < TEMP_PASSWORD_MIN_LENGTH or not any(character.isalpha() for character in password) or not any(
+                    character.isdigit() for character in password
+                ):
+                    raise ValueError(
+                        f"임시 비밀번호는 영문과 숫자를 포함하여 {TEMP_PASSWORD_MIN_LENGTH}자 이상이어야 합니다."
+                    )
+                if password != confirm_password:
+                    raise ValueError("임시 비밀번호 확인이 일치하지 않습니다.")
+                was_locked = bool(employee.locked_until or employee.failed_login_count)
+                employee.set_password(password)
+                employee.failed_login_count = 0
+                employee.locked_until = None
+                employee.must_change_password = True
+                audit(
+                    "EMPLOYEE_PASSWORD_RESET",
+                    f"employee:{employee.id}",
+                    {"account_unlocked": was_locked, "must_change_password": True},
+                )
+                return f"{employee.name} 임직원의 비밀번호를 초기화하고 계정 잠금을 해제했습니다."
             if action == "update":
                 employee = db.get_or_404(Employee, int(request.form["employee_id"]))
                 login_id = request.form.get("login_id", "").strip()
