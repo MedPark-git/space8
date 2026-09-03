@@ -66,6 +66,7 @@ EMPLOYEE_POSITIONS = ("부서장", "팀장", "팀원")
 MAX_FAILED_LOGIN_ATTEMPTS = 5
 ACCOUNT_LOCK_MINUTES = 15
 TEMP_PASSWORD_MIN_LENGTH = 8
+REGISTRATION_PASSWORD_MIN_LENGTH = 8
 
 
 def normalize_cadence_value(value):
@@ -1098,6 +1099,7 @@ def create_app(test_config=None):
             "TASK_STATUSES": TASK_STATUSES,
             "REPEAT_CYCLES": REPEAT_CYCLES,
             "STATUS_CLASS": STATUS_CLASS,
+            "REGISTRATION_PASSWORD_MIN_LENGTH": REGISTRATION_PASSWORD_MIN_LENGTH,
             "today": date.today(),
         }
 
@@ -1213,10 +1215,12 @@ def create_app(test_config=None):
                 if position not in EMPLOYEE_POSITIONS:
                     raise ValueError("직급을 선택해 주세요.")
                 password = request.form.get("password", "")
-                if len(password) < 10 or not any(character.isalpha() for character in password) or not any(
+                if len(password) < REGISTRATION_PASSWORD_MIN_LENGTH or not any(character.isalpha() for character in password) or not any(
                     character.isdigit() for character in password
                 ):
-                    raise ValueError("비밀번호는 영문과 숫자를 포함하여 10자 이상이어야 합니다.")
+                    raise ValueError(
+                        f"비밀번호는 영문과 숫자를 포함하여 {REGISTRATION_PASSWORD_MIN_LENGTH}자 이상이어야 합니다."
+                    )
                 if password != request.form.get("confirm_password", ""):
                     raise ValueError("비밀번호 확인이 일치하지 않습니다.")
                 default_role = db.session.scalar(select(Role).where(Role.name == "팀원"))

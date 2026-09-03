@@ -36,8 +36,8 @@
         <label>입사일(선택)<input type="date" name="hire_date" value="{{ request.form.get('hire_date', '') }}"></label>
         <label>이메일(선택)<input type="email" name="email" value="{{ request.form.get('email', '') }}"></label>
         <label>연락처(선택)<input name="phone" value="{{ request.form.get('phone', '') }}" placeholder="010-0000-0000"></label>
-        <label>비밀번호<input type="password" name="password" minlength="10" autocomplete="new-password" placeholder="영문·숫자 포함 10자 이상" required></label>
-        <label>비밀번호 확인<input type="password" name="confirm_password" minlength="10" autocomplete="new-password" required></label>
+        <label>비밀번호<input type="password" name="password" minlength="{{ REGISTRATION_PASSWORD_MIN_LENGTH }}" autocomplete="new-password" placeholder="영문·숫자 포함 {{ REGISTRATION_PASSWORD_MIN_LENGTH }}자 이상" required></label>
+        <label>비밀번호 확인<input type="password" name="confirm_password" minlength="{{ REGISTRATION_PASSWORD_MIN_LENGTH }}" autocomplete="new-password" required></label>
         <div class="auth-register-actions span-2"><a class="button ghost" href="{{ url_for('login') }}">로그인으로 돌아가기</a><button class="button primary" type="submit">등록 신청</button></div>
       </form>
     {% else %}

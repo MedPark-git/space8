@@ -15,6 +15,7 @@ from app import (  # noqa: E402
     AuditLog,
     Department,
     Employee,
+    REGISTRATION_PASSWORD_MIN_LENGTH,
     Role,
     Schedule,
     create_app,
@@ -99,8 +100,8 @@ class EmployeeRegistrationTests(unittest.TestCase):
             "hire_date": "",
             "email": "",
             "phone": "",
-            "password": "Register123",
-            "confirm_password": "Register123",
+            "password": "Pass1234",
+            "confirm_password": "Pass1234",
         }
         payload.update(overrides)
         return payload
@@ -125,6 +126,8 @@ class EmployeeRegistrationTests(unittest.TestCase):
         self.assertNotIn("권한".encode(), page.data)
         self.assertIn("입사일(선택)".encode(), page.data)
         self.assertIn("아마란스에서 사용하는 계정 ID".encode(), page.data)
+        self.assertIn(b'minlength="8"', page.data)
+        self.assertIn("영문·숫자 포함 8자 이상".encode(), page.data)
 
         response = self.register(role_id=str(self.admin_role_id))
         self.assertEqual(response.status_code, 302)
@@ -148,7 +151,7 @@ class EmployeeRegistrationTests(unittest.TestCase):
 
     def test_pending_account_cannot_login_until_admin_approves(self):
         self.assertEqual(self.register().status_code, 302)
-        response = self.login("newmember", "Register123")
+        response = self.login("newmember", "Pass1234")
         self.assertEqual(response.status_code, 403)
         self.assertIn("관리자 승인 대기".encode(), response.data)
 
@@ -173,7 +176,7 @@ class EmployeeRegistrationTests(unittest.TestCase):
         self.assertEqual(audit.user_id, self.admin_id)
 
         self.client.post("/logout")
-        self.assertEqual(self.login("newmember", "Register123").status_code, 302)
+        self.assertEqual(self.login("newmember", "Pass1234").status_code, 302)
 
     def test_non_admin_cannot_approve_registration(self):
         self.assertEqual(self.register().status_code, 302)
@@ -213,6 +216,29 @@ class EmployeeRegistrationTests(unittest.TestCase):
         self.assertIsNone(employee.hire_date)
         self.assertTrue(employee.must_change_password)
 
+    def test_admin_direct_registration_keeps_ten_character_minimum(self):
+        self.assertEqual(self.login("admin1", "AdminPass123").status_code, 302)
+        response = self.client.post(
+            "/admin/employees",
+            data={
+                "action": "create",
+                "login_id": "directshort",
+                "name": "짧은비밀번호",
+                "department_id": str(self.department_id),
+                "position": "팀원",
+                "role_id": str(self.member_role_id),
+                "hire_date": "",
+                "password": "Pass1234",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("초기 비밀번호".encode(), response.data)
+        self.assertIn("10자 이상".encode(), response.data)
+        self.assertIsNone(
+            db.session.scalar(db.select(Employee).where(Employee.login_id == "directshort"))
+        )
+
     def test_pending_account_is_not_available_as_task_or_schedule_assignee(self):
         self.assertEqual(self.register().status_code, 302)
         pending = db.session.scalar(db.select(Employee).where(Employee.login_id == "newmember"))
@@ -240,10 +266,11 @@ class EmployeeRegistrationTests(unittest.TestCase):
             db.session.scalar(db.select(Schedule).where(Schedule.title == "승인 전 개인 일정"))
         )
 
-    def test_invalid_registration_does_not_create_account(self):
-        response = self.register(password="short1", confirm_password="short1")
+    def test_seven_character_registration_password_is_rejected(self):
+        self.assertEqual(REGISTRATION_PASSWORD_MIN_LENGTH, 8)
+        response = self.register(password="Pass123", confirm_password="Pass123")
         self.assertEqual(response.status_code, 400)
-        self.assertIn("10자 이상".encode(), response.data)
+        self.assertIn("8자 이상".encode(), response.data)
         self.assertIsNone(db.session.scalar(db.select(Employee).where(Employee.login_id == "newmember")))
 
 
