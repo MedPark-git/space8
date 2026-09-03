@@ -271,6 +271,8 @@ class Task(db.Model):
     repeat_cycle = db.Column(db.String(20), nullable=False, default="없음")
     repeat_detail = db.Column(db.String(100), nullable=True)
     calendar_selected = db.Column(db.Boolean, nullable=False, default=False, server_default=text("false"))
+    calendar_excluded = db.Column(db.Boolean, nullable=False, default=False, server_default=text("false"))
+    calendar_registered_by_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True)
     source_ref = db.Column(db.String(100), unique=True, nullable=True, index=True)
     source_name = db.Column(db.String(255), nullable=True)
     source_sheet = db.Column(db.String(255), nullable=True)
@@ -287,6 +289,9 @@ class Task(db.Model):
     department = db.relationship("Department", backref="tasks")
     assignee = db.relationship("Employee", foreign_keys=[assignee_id], backref="assigned_tasks")
     creator = db.relationship("Employee", foreign_keys=[created_by_id], backref="created_tasks")
+    calendar_registered_by = db.relationship(
+        "Employee", foreign_keys=[calendar_registered_by_id], backref="calendar_registered_tasks"
+    )
     deleted_by = db.relationship("Employee", foreign_keys=[deleted_by_id])
     classifications = db.relationship("TaskClassification", cascade="all, delete-orphan", backref="task")
     daily_logs = db.relationship("TaskDailyLog", cascade="all, delete-orphan", backref="task")
@@ -301,10 +306,12 @@ class Task(db.Model):
 
     @property
     def calendar_included(self):
-        return self.calendar_auto_included or self.calendar_selected
+        return not self.calendar_excluded and (self.calendar_auto_included or self.calendar_selected)
 
     @property
     def calendar_registration_label(self):
+        if self.calendar_excluded:
+            return "일정 제외"
         if self.calendar_auto_included:
             return "자동 등록"
         if self.calendar_selected:
@@ -598,6 +605,20 @@ def can_delete_task(task):
     if current_user.role.name == "관리자":
         return True
     return current_user.role.name in {"부서장", "팀장"} and task.department_id == current_user.department_id
+
+
+def can_remove_task_calendar(task):
+    if task.deleted_at is not None or not task.calendar_included:
+        return False
+    if current_user.role.name == "관리자":
+        return True
+    if current_user.role.name in {"부서장", "팀장"}:
+        return task.department_id == current_user.department_id
+    if current_user.role.name != "팀원" or task.department_id != current_user.department_id:
+        return False
+    if task.calendar_registered_by_id is not None:
+        return task.calendar_registered_by_id == current_user.id
+    return task.created_by_id == current_user.id
 
 
 def get_active_task_or_404(task_id):
@@ -1274,6 +1295,9 @@ def create_app(test_config=None):
         }
         major_selectable_ids = {task.id for task in pagination.items if can_edit_task(task)}
         calendar_selectable_ids = {task.id for task in pagination.items if can_edit_task(task)}
+        calendar_removable_ids = {
+            task.id for task in pagination.items if can_remove_task_calendar(task)
+        }
         deletable_task_ids = {task.id for task in pagination.items if can_delete_task(task)}
         selectable_task_ids = (
             journal_selectable_ids | major_selectable_ids | calendar_selectable_ids | deletable_task_ids
@@ -1291,6 +1315,7 @@ def create_app(test_config=None):
             journal_selectable_ids=journal_selectable_ids,
             major_selectable_ids=major_selectable_ids,
             calendar_selectable_ids=calendar_selectable_ids,
+            calendar_removable_ids=calendar_removable_ids,
             deletable_task_ids=deletable_task_ids,
             selectable_task_ids=selectable_task_ids,
             can_view_all_tasks=current_user.role.data_scope == "all",
@@ -1349,7 +1374,10 @@ def create_app(test_config=None):
         for task in selected_tasks:
             if "주요" in task.type_names:
                 continue
+            was_calendar_included = task.calendar_included
             task.classifications.append(TaskClassification(name="주요"))
+            if not was_calendar_included and task.calendar_included:
+                task.calendar_registered_by_id = current_user.id
             task.updated_at = utcnow()
             added_task_ids.append(task.id)
         audit(
@@ -1387,9 +1415,12 @@ def create_app(test_config=None):
             abort(403)
         registered_task_ids = []
         for task in selected_tasks:
-            if task.calendar_selected:
+            if task.calendar_included:
                 continue
-            task.calendar_selected = True
+            task.calendar_excluded = False
+            if not task.calendar_auto_included:
+                task.calendar_selected = True
+            task.calendar_registered_by_id = current_user.id
             task.updated_at = utcnow()
             registered_task_ids.append(task.id)
         audit(
@@ -1405,6 +1436,54 @@ def create_app(test_config=None):
         db.session.commit()
         flash(
             f"선택한 업무 {len(task_ids)}건 중 {len(registered_task_ids)}건을 일정(캘린더)에 등록했습니다.",
+            "success",
+        )
+        return_to = request.form.get("return_to", "")
+        if return_to and urlparse(return_to).netloc == "":
+            return redirect(return_to)
+        return redirect(url_for("task_list"))
+
+    @app.post("/tasks/bulk-calendar-remove")
+    @login_required
+    def task_bulk_calendar_remove():
+        task_ids = {int(item) for item in request.form.getlist("task_ids") if item.isdigit()}
+        if not task_ids:
+            flash("일정(캘린더)에서 삭제할 업무를 선택해 주세요.", "danger")
+            return redirect(url_for("task_list"))
+        selected_tasks = db.session.scalars(
+            visible_task_query(current_user).where(Task.id.in_(task_ids)).order_by(Task.id)
+        ).all()
+        if len(selected_tasks) != len(task_ids) or any(
+            not can_remove_task_calendar(task) for task in selected_tasks
+        ):
+            abort(403)
+        removed_task_ids = []
+        registered_by_ids = {}
+        for task in selected_tasks:
+            if not task.calendar_included:
+                continue
+            registered_by_ids[str(task.id)] = task.calendar_registered_by_id
+            task.calendar_selected = False
+            task.calendar_excluded = True
+            task.calendar_registered_by_id = None
+            task.updated_at = utcnow()
+            removed_task_ids.append(task.id)
+        audit(
+            "TASK_BULK_CALENDAR_REMOVE",
+            "tasks:bulk",
+            {
+                "requested": len(task_ids),
+                "removed": len(removed_task_ids),
+                "task_ids": sorted(task_ids),
+                "removed_task_ids": removed_task_ids,
+                "calendar_registered_by_ids": registered_by_ids,
+                "tasks_preserved": True,
+            },
+        )
+        db.session.commit()
+        flash(
+            f"선택한 업무 {len(task_ids)}건 중 {len(removed_task_ids)}건을 일정(캘린더)에서 삭제했습니다. "
+            "원본 업무와 기존 이력은 유지됩니다.",
             "success",
         )
         return_to = request.form.get("return_to", "")
@@ -1478,6 +1557,7 @@ def create_app(test_config=None):
                     flash("담당자는 업무 부서에 소속된 임직원만 지정할 수 있습니다.", "danger")
                     return render_template("tasks.html", mode="form", task=task, departments=departments, employees=employees)
                 old_status = task.status if task else None
+                was_calendar_included = task.calendar_included if task else False
                 target = task or Task(created_by_id=current_user.id)
                 target.title = request.form.get("title", "").strip()
                 target.content = request.form.get("content", "").strip()
@@ -1490,7 +1570,20 @@ def create_app(test_config=None):
                 target.progress = min(max(int(request.form.get("progress", 0)), 0), 100)
                 target.repeat_cycle = request.form.get("repeat_cycle", "없음") if request.form.get("repeat_cycle") in REPEAT_CYCLES else "없음"
                 target.repeat_detail = request.form.get("repeat_detail", "").strip()
-                target.calendar_selected = request.form.get("calendar_selected") == "1"
+                calendar_requested = request.form.get("calendar_included") == "1"
+                auto_calendar_requested = any(name in CALENDAR_AUTO_TASK_TYPES for name in types)
+                if task is None and auto_calendar_requested and not calendar_requested:
+                    target.calendar_excluded = False
+                    target.calendar_selected = False
+                else:
+                    if calendar_requested:
+                        target.calendar_excluded = False
+                        target.calendar_selected = not auto_calendar_requested
+                    else:
+                        target.calendar_excluded = (
+                            auto_calendar_requested or bool(task and target.calendar_excluded)
+                        )
+                        target.calendar_selected = False
                 if target.status == "완료":
                     target.completed_date = target.completed_date or date.today()
                     target.progress = 100
@@ -1510,6 +1603,10 @@ def create_app(test_config=None):
                     for name in types:
                         if name not in existing_classifications:
                             target.classifications.append(TaskClassification(name=name))
+                    if target.calendar_included and (task is None or not was_calendar_included):
+                        target.calendar_registered_by_id = current_user.id
+                    elif not target.calendar_included:
+                        target.calendar_registered_by_id = None
                     synchronized_task_ids = synchronize_task_work_process(target)
                     if old_status != target.status:
                         db.session.add(
@@ -1528,6 +1625,8 @@ def create_app(test_config=None):
                             "work_process_updated": bool(target.work_process),
                             "work_process_synchronized_task_ids": synchronized_task_ids,
                             "calendar_selected": target.calendar_selected,
+                            "calendar_excluded": target.calendar_excluded,
+                            "calendar_registered_by_id": target.calendar_registered_by_id,
                             "calendar_registration": target.calendar_registration_label,
                         },
                     )
@@ -1655,6 +1754,8 @@ def create_app(test_config=None):
                 if not types:
                     raise ValueError(f"{created + 2}행의 업무 분류가 올바르지 않습니다.")
                 task.classifications = [TaskClassification(name=name) for name in types]
+                if task.calendar_included:
+                    task.calendar_registered_by_id = current_user.id
                 db.session.add(task)
                 created += 1
             db.session.add(
@@ -1689,6 +1790,7 @@ def create_app(test_config=None):
             visible_task_query(current_user)
             .where(
                 Task.target_date.between(first, last),
+                Task.calendar_excluded.is_(False),
                 or_(
                     Task.calendar_selected.is_(True),
                     Task.classifications.any(TaskClassification.name.in_(CALENDAR_AUTO_TASK_TYPES)),

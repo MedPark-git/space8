@@ -76,6 +76,7 @@ class TaskDeleteTests(unittest.TestCase):
             ("head1", "보안 부서장", self.security, "부서장"),
             ("lead1", "보안 팀장", self.security, "팀장"),
             ("member1", "보안 팀원", self.security, "팀원"),
+            ("member2", "보안 팀원2", self.security, "팀원"),
             ("financelead", "재무 팀장", self.finance, "팀장"),
         ):
             employee = Employee(
@@ -275,6 +276,124 @@ class TaskDeleteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertFalse(db.session.get(Task, self.finance_task_id).calendar_selected)
 
+    def test_member_can_remove_manually_registered_task_from_calendar(self):
+        task = db.session.get(Task, self.security_task_id)
+        task.calendar_selected = True
+        task.calendar_registered_by_id = self.users["member1"].id
+        db.session.commit()
+        self.login("member1")
+
+        response = self.client.post(
+            "/tasks/bulk-calendar-remove",
+            data={"task_ids": [str(self.security_task_id)], "return_to": "/tasks"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        task = db.session.get(Task, self.security_task_id)
+        self.assertFalse(task.calendar_selected)
+        self.assertTrue(task.calendar_excluded)
+        self.assertFalse(task.calendar_included)
+        audit = db.session.scalar(
+            db.select(AuditLog).where(AuditLog.action == "TASK_BULK_CALENDAR_REMOVE")
+        )
+        self.assertEqual(audit.details["removed_task_ids"], [self.security_task_id])
+        self.assertTrue(audit.details["tasks_preserved"])
+
+    def test_major_and_executive_tasks_can_be_removed_from_calendar(self):
+        major_task = db.session.get(Task, self.security_task_id)
+        major_task.created_by_id = self.users["member1"].id
+        major_task.classifications.append(TaskClassification(name="주요"))
+        executive_task = self.create_task("대표이사 수명 캘린더 삭제", self.security, self.users["member1"])
+        executive_task.created_by_id = self.users["member1"].id
+        executive_task.classifications.append(TaskClassification(name="대표이사님 수명업무"))
+        db.session.commit()
+        executive_task_id = executive_task.id
+        self.assertTrue(major_task.calendar_included)
+        self.assertTrue(executive_task.calendar_included)
+        self.login("member1")
+
+        response = self.client.post(
+            "/tasks/bulk-calendar-remove",
+            data={"task_ids": [str(self.security_task_id), str(executive_task_id)]},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(db.session.get(Task, self.security_task_id).calendar_included)
+        self.assertFalse(db.session.get(Task, executive_task_id).calendar_included)
+        calendar_page = self.client.get("/calendar")
+        self.assertNotIn("보안 삭제 대상".encode(), calendar_page.data)
+        self.assertNotIn("대표이사 수명 캘린더 삭제".encode(), calendar_page.data)
+
+    def test_team_member_cannot_remove_another_members_calendar_registration(self):
+        task = db.session.get(Task, self.security_task_id)
+        task.calendar_selected = True
+        task.calendar_registered_by_id = self.users["member1"].id
+        db.session.commit()
+        self.login("member2")
+
+        response = self.client.post(
+            "/tasks/bulk-calendar-remove",
+            data={"task_ids": [str(self.security_task_id)]},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        task = db.session.get(Task, self.security_task_id)
+        self.assertTrue(task.calendar_included)
+        self.assertEqual(task.calendar_registered_by_id, self.users["member1"].id)
+
+    def test_removed_auto_calendar_task_can_be_registered_again(self):
+        task = db.session.get(Task, self.security_task_id)
+        task.classifications.append(TaskClassification(name="주요"))
+        task.calendar_excluded = True
+        db.session.commit()
+        self.login("member1")
+
+        response = self.client.post(
+            "/tasks/bulk-calendar",
+            data={"task_ids": [str(self.security_task_id)]},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        task = db.session.get(Task, self.security_task_id)
+        self.assertFalse(task.calendar_excluded)
+        self.assertFalse(task.calendar_selected)
+        self.assertTrue(task.calendar_included)
+        self.assertEqual(task.calendar_registration_label, "자동 등록")
+
+    def test_department_manager_cannot_remove_other_department_calendar(self):
+        finance_task = db.session.get(Task, self.finance_task_id)
+        finance_task.calendar_selected = True
+        db.session.commit()
+        self.login("lead1")
+
+        response = self.client.post(
+            "/tasks/bulk-calendar-remove",
+            data={"task_ids": [str(self.finance_task_id)]},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        finance_task = db.session.get(Task, self.finance_task_id)
+        self.assertTrue(finance_task.calendar_selected)
+        self.assertFalse(finance_task.calendar_excluded)
+
+    def test_team_lead_can_delete_major_and_executive_tasks(self):
+        major_task = db.session.get(Task, self.security_task_id)
+        major_task.classifications.append(TaskClassification(name="주요"))
+        executive_task = self.create_task("대표이사 수명 삭제 대상", self.security, self.users["member1"])
+        executive_task.classifications.append(TaskClassification(name="대표이사님 수명업무"))
+        db.session.commit()
+        executive_task_id = executive_task.id
+        self.login("lead1")
+
+        response = self.client.post(
+            "/tasks/bulk-delete",
+            data={"task_ids": [str(self.security_task_id), str(executive_task_id)]},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNotNone(db.session.get(Task, self.security_task_id).deleted_at)
+        self.assertIsNotNone(db.session.get(Task, executive_task_id).deleted_at)
+
     def test_team_lead_can_bulk_delete_own_department_tasks(self):
         extra_task = self.create_task("보안 일괄 삭제 대상", self.security, self.users["member1"])
         db.session.commit()
@@ -326,12 +445,14 @@ class TaskDeleteTests(unittest.TestCase):
         self.login("admin1")
         admin_page = self.client.get("/tasks")
         self.assertIn(b'data-bulk-calendar', admin_page.data)
+        self.assertIn(b'data-bulk-calendar-remove', admin_page.data)
         self.assertIn(b'data-bulk-major', admin_page.data)
         self.assertIn(b'data-bulk-delete', admin_page.data)
 
         self.login("member1")
         member_page = self.client.get("/tasks")
         self.assertIn(b'data-bulk-calendar', member_page.data)
+        self.assertIn(b'data-bulk-calendar-remove', member_page.data)
         self.assertIn(b'data-bulk-major', member_page.data)
         self.assertNotIn(b'data-bulk-delete', member_page.data)
 
