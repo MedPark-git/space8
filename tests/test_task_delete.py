@@ -17,6 +17,7 @@ from app import (  # noqa: E402
     Department,
     Employee,
     Role,
+    Schedule,
     Task,
     TaskClassification,
     TaskDailyLog,
@@ -340,6 +341,100 @@ class TaskDeleteTests(unittest.TestCase):
         task = db.session.get(Task, self.security_task_id)
         self.assertTrue(task.calendar_included)
         self.assertEqual(task.calendar_registered_by_id, self.users["member1"].id)
+
+    def test_calendar_page_shows_delete_icon_for_own_task_registration(self):
+        task = db.session.get(Task, self.security_task_id)
+        task.calendar_selected = True
+        task.calendar_registered_by_id = self.users["member1"].id
+        db.session.commit()
+        self.login("member1")
+
+        page = self.client.get("/calendar")
+        action = f'/calendar/tasks/{self.security_task_id}/remove'.encode()
+        self.assertIn(action, page.data)
+        response = self.client.post(
+            f"/calendar/tasks/{self.security_task_id}/remove",
+            data={"return_to": "/calendar"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        task = db.session.get(Task, self.security_task_id)
+        self.assertFalse(task.calendar_included)
+        self.assertTrue(task.calendar_excluded)
+        self.assertIsNotNone(
+            db.session.scalar(
+                db.select(AuditLog).where(AuditLog.action == "TASK_CALENDAR_REMOVE")
+            )
+        )
+
+    def test_calendar_page_hides_delete_icon_and_blocks_other_team_member(self):
+        task = db.session.get(Task, self.security_task_id)
+        task.calendar_selected = True
+        task.calendar_registered_by_id = self.users["member1"].id
+        db.session.commit()
+        self.login("member2")
+
+        page = self.client.get("/calendar")
+        action = f'/calendar/tasks/{self.security_task_id}/remove'.encode()
+        self.assertNotIn(action, page.data)
+        response = self.client.post(f"/calendar/tasks/{self.security_task_id}/remove")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(db.session.get(Task, self.security_task_id).calendar_included)
+
+    def test_schedule_creator_can_soft_delete_from_calendar_page(self):
+        schedule = Schedule(
+            title="팀원 등록 일정",
+            schedule_date=date.today(),
+            department_id=self.security.id,
+            assignee_id=self.users["member1"].id,
+            scope="개인",
+            memo="삭제 테스트",
+            created_by_id=self.users["member1"].id,
+        )
+        db.session.add(schedule)
+        db.session.commit()
+        schedule_id = schedule.id
+        self.login("member1")
+
+        page = self.client.get("/calendar")
+        action = f'/calendar/schedules/{schedule_id}/delete'.encode()
+        self.assertIn(action, page.data)
+        response = self.client.post(
+            f"/calendar/schedules/{schedule_id}/delete",
+            data={"return_to": "/calendar"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        schedule = db.session.get(Schedule, schedule_id)
+        self.assertIsNotNone(schedule.deleted_at)
+        self.assertEqual(schedule.deleted_by_id, self.users["member1"].id)
+        self.assertNotIn("팀원 등록 일정".encode(), self.client.get("/calendar").data)
+        audit = db.session.scalar(
+            db.select(AuditLog).where(AuditLog.action == "SCHEDULE_DELETE")
+        )
+        self.assertTrue(audit.details["history_preserved"])
+
+    def test_team_member_cannot_delete_another_creators_registered_schedule(self):
+        schedule = Schedule(
+            title="다른 팀원 등록 일정",
+            schedule_date=date.today(),
+            department_id=self.security.id,
+            assignee_id=self.users["member1"].id,
+            scope="개인",
+            created_by_id=self.users["member1"].id,
+        )
+        db.session.add(schedule)
+        db.session.commit()
+        schedule_id = schedule.id
+        self.login("member2")
+
+        page = self.client.get("/calendar")
+        self.assertNotIn(f'/calendar/schedules/{schedule_id}/delete'.encode(), page.data)
+        response = self.client.post(f"/calendar/schedules/{schedule_id}/delete")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIsNone(db.session.get(Schedule, schedule_id).deleted_at)
 
     def test_removed_auto_calendar_task_can_be_registered_again(self):
         task = db.session.get(Task, self.security_task_id)

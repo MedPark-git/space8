@@ -17,17 +17,17 @@
 <div class="calendar-legend"><span><i class="dot progress"></i>진행중</span><span><i class="dot done"></i>완료</span><span><i class="dot delayed"></i>지연</span><span><i class="dot hold"></i>보류</span><span><i class="dot schedule"></i>일정</span></div>
 <section class="panel calendar-list-panel">
   <div class="panel-head"><div><h2>{{ year }}년 {{ month }}월 일정 목록</h2><p>달력에서 잘리지 않는 전체 일정 내용을 날짜순으로 확인합니다.</p></div><strong>{{ calendar_rows|length }}건</strong></div>
-  <div class="table-wrap"><table><thead><tr><th>일자</th><th>구분</th><th>부서</th><th>일정 내용</th><th>담당자</th><th>상태/범위</th></tr></thead><tbody>
+  <div class="table-wrap"><table><thead><tr><th>일자</th><th>구분</th><th>부서</th><th>일정 내용</th><th>담당자</th><th>상태/범위</th><th class="calendar-manage-column">관리</th></tr></thead><tbody>
   {% for item_date, kind, item in calendar_rows %}
     <tr>
       <td>{{ item_date }}</td>
       {% if kind == 'task' %}
-      <td><span class="tag calendar-registration-tag active">{{ item.calendar_registration_label }}</span></td><td>{{ item.department.name }}</td><td><a class="task-title" href="{{ url_for('task_detail', task_id=item.id) }}">{{ item.title }}</a><small>{{ item.content or '-' }}</small></td><td>{{ item.assignee.name }}</td><td><span class="status {{ item.status_class }}">{{ item.status }}</span></td>
+      <td><span class="tag calendar-registration-tag active">{{ item.calendar_registration_label }}</span></td><td>{{ item.department.name }}</td><td><a class="task-title" href="{{ url_for('task_detail', task_id=item.id) }}">{{ item.title }}</a><small>{{ item.content or '-' }}</small></td><td>{{ item.assignee.name }}</td><td><span class="status {{ item.status_class }}">{{ item.status }}</span></td><td>{% if item.id in calendar_removable_task_ids %}<form method="post" action="{{ url_for('task_calendar_remove', task_id=item.id) }}" class="calendar-delete-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="return_to" value="{{ request.full_path }}"><button class="button danger small icon-only" type="submit" title="캘린더에서 삭제" aria-label="{{ item.title }} 일정을 캘린더에서 삭제" onclick="return confirm('이 일정을 캘린더에서 삭제하시겠습니까? 원본 업무와 기존 이력은 유지됩니다.')"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg></button></form>{% else %}<span class="permission-muted">-</span>{% endif %}</td>
       {% else %}
-      <td><span class="tag">등록 일정</span></td><td>{{ item.department.name if item.department else (item.assignee.department.name if item.assignee else '전사') }}</td><td><strong>{{ item.title }}</strong><small>{{ item.memo or '-' }}</small></td><td>{{ item.assignee.name if item.assignee else '-' }}</td><td>{{ item.scope }}{% if item.is_holiday %}<span class="tag">공휴일</span>{% endif %}</td>
+      <td><span class="tag">등록 일정</span></td><td>{{ item.department.name if item.department else (item.assignee.department.name if item.assignee else '전사') }}</td><td><strong>{{ item.title }}</strong><small>{{ item.memo or '-' }}</small></td><td>{{ item.assignee.name if item.assignee else '-' }}</td><td>{{ item.scope }}{% if item.is_holiday %}<span class="tag">공휴일</span>{% endif %}</td><td>{% if item.id in calendar_deletable_schedule_ids %}<form method="post" action="{{ url_for('schedule_calendar_delete', schedule_id=item.id) }}" class="calendar-delete-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="return_to" value="{{ request.full_path }}"><button class="button danger small icon-only" type="submit" title="등록 일정 삭제" aria-label="{{ item.title }} 등록 일정 삭제" onclick="return confirm('이 등록 일정을 삭제하시겠습니까? 삭제 이력은 감사로그에 보존됩니다.')"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg></button></form>{% else %}<span class="permission-muted">-</span>{% endif %}</td>
       {% endif %}
     </tr>
-  {% else %}<tr><td colspan="6" class="empty">해당 월에 표시할 일정이 없습니다.</td></tr>{% endfor %}
+  {% else %}<tr><td colspan="7" class="empty">해당 월에 표시할 일정이 없습니다.</td></tr>{% endfor %}
   </tbody></table></div>
 </section>
 {% endblock %}

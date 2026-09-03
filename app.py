@@ -494,10 +494,13 @@ class Schedule(db.Model):
     memo = db.Column(db.Text, nullable=True)
     is_holiday = db.Column(db.Boolean, nullable=False, default=False)
     created_by_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    deleted_at = db.Column(db.DateTime(timezone=True), nullable=True, index=True)
+    deleted_by_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True)
     task = db.relationship("Task")
     department = db.relationship("Department")
     assignee = db.relationship("Employee", foreign_keys=[assignee_id])
     creator = db.relationship("Employee", foreign_keys=[created_by_id])
+    deleted_by = db.relationship("Employee", foreign_keys=[deleted_by_id])
 
 
 class DailyMeeting(db.Model):
@@ -639,7 +642,7 @@ def can_view_all_schedules(user):
 
 
 def visible_schedule_query(user):
-    query = select(Schedule)
+    query = select(Schedule).where(Schedule.deleted_at.is_(None))
     if can_view_all_schedules(user):
         return query
     department_employee_ids = select(Employee.id).where(Employee.department_id == user.department_id)
@@ -649,6 +652,17 @@ def visible_schedule_query(user):
             Schedule.department_id == user.department_id,
             Schedule.assignee_id.in_(department_employee_ids),
         )
+    )
+
+
+def can_delete_schedule(schedule):
+    if schedule.deleted_at is not None:
+        return False
+    if current_user.role.name == "관리자" or schedule.created_by_id == current_user.id:
+        return True
+    return (
+        current_user.role.name in {"부서장", "팀장"}
+        and schedule.department_id == current_user.department_id
     )
 
 
@@ -1813,6 +1827,12 @@ def create_app(test_config=None):
             + [(schedule.schedule_date, "schedule", schedule) for schedule in schedules],
             key=lambda row: (row[0], row[1], row[2].id),
         )
+        calendar_removable_task_ids = {
+            task.id for task in tasks if can_remove_task_calendar(task)
+        }
+        calendar_deletable_schedule_ids = {
+            schedule.id for schedule in schedules if can_delete_schedule(schedule)
+        }
         return render_template(
             "calendar.html",
             year=year,
@@ -1820,10 +1840,70 @@ def create_app(test_config=None):
             weeks=weeks,
             day_items=day_items,
             calendar_rows=calendar_rows,
+            calendar_removable_task_ids=calendar_removable_task_ids,
+            calendar_deletable_schedule_ids=calendar_deletable_schedule_ids,
             previous=previous,
             next_month=next_month,
             can_view_all_schedules=can_view_all_schedules(current_user),
         )
+
+    @app.post("/calendar/tasks/<int:task_id>/remove")
+    @login_required
+    def task_calendar_remove(task_id):
+        task = get_active_task_or_404(task_id)
+        if not can_remove_task_calendar(task):
+            abort(403)
+        registered_by_id = task.calendar_registered_by_id
+        task.calendar_selected = False
+        task.calendar_excluded = True
+        task.calendar_registered_by_id = None
+        task.updated_at = utcnow()
+        audit(
+            "TASK_CALENDAR_REMOVE",
+            f"task:{task.id}",
+            {
+                "title": task.title,
+                "calendar_registered_by_id": registered_by_id,
+                "task_preserved": True,
+                "source": "calendar_page",
+            },
+        )
+        db.session.commit()
+        flash("일정을 캘린더에서 삭제했습니다. 원본 업무와 기존 이력은 유지됩니다.", "success")
+        return_to = request.form.get("return_to", "")
+        if return_to and urlparse(return_to).netloc == "":
+            return redirect(return_to)
+        return redirect(url_for("task_calendar"))
+
+    @app.post("/calendar/schedules/<int:schedule_id>/delete")
+    @login_required
+    def schedule_calendar_delete(schedule_id):
+        schedule = db.session.scalar(
+            select(Schedule).where(Schedule.id == schedule_id, Schedule.deleted_at.is_(None))
+        )
+        if not schedule:
+            abort(404)
+        if not can_delete_schedule(schedule):
+            abort(403)
+        schedule.deleted_at = utcnow()
+        schedule.deleted_by_id = current_user.id
+        audit(
+            "SCHEDULE_DELETE",
+            f"schedule:{schedule.id}",
+            {
+                "title": schedule.title,
+                "scope": schedule.scope,
+                "department_id": schedule.department_id,
+                "history_preserved": True,
+                "source": "calendar_page",
+            },
+        )
+        db.session.commit()
+        flash("등록 일정을 삭제했습니다. 삭제 이력은 감사로그에 보존됩니다.", "success")
+        return_to = request.form.get("return_to", "")
+        if return_to and urlparse(return_to).netloc == "":
+            return redirect(return_to)
+        return redirect(url_for("task_calendar"))
 
     @app.route("/meetings", methods=["GET", "POST"])
     @login_required
@@ -2210,7 +2290,12 @@ def create_app(test_config=None):
         elif section == "boards":
             common["boards"] = db.session.scalars(select(Board).order_by(Board.name)).all()
         elif section == "schedules":
-            common["schedules"] = db.session.scalars(select(Schedule).order_by(Schedule.schedule_date.desc()).limit(100)).all()
+            common["schedules"] = db.session.scalars(
+                select(Schedule)
+                .where(Schedule.deleted_at.is_(None))
+                .order_by(Schedule.schedule_date.desc())
+                .limit(100)
+            ).all()
         elif section == "audits":
             common["audits"] = db.session.scalars(select(AuditLog).order_by(AuditLog.created_at.desc()).limit(200)).all()
         return common

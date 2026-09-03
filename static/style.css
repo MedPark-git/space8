@@ -47,3 +47,4 @@
 .button.major{border-color:#d9d0f6;background:#f3efff;color:var(--violet)}.button.major:hover{background:#eae3ff}.button-icon{width:15px;height:15px;flex:0 0 15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;margin-right:5px}.task-bulk-actions{row-gap:7px}
 .button.calendar{border-color:#c8e6dc;background:#edf9f5;color:var(--green)}.button.calendar:hover{background:#dff4ec}
 .button.calendar-remove{border-color:#efd2b5;background:#fff7ed;color:#b85c00}.button.calendar-remove:hover{background:#ffedd5}
+.calendar-manage-column{width:64px;text-align:center}.calendar-delete-form{display:inline-flex;margin:0}.button.icon-only{width:32px;height:32px;padding:0;align-items:center;justify-content:center}.button.icon-only .button-icon{margin:0}
