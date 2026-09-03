@@ -17,6 +17,7 @@ from app import (  # noqa: E402
     TaskClassification,
     create_app,
     db,
+    synchronize_existing_source_work_processes,
 )
 
 
@@ -66,6 +67,7 @@ class TaskWorkProcessTests(unittest.TestCase):
             source_name="경영_보안전산팀 업무분장_260902.xlsx",
             source_category="DRM",
             source_detail="모니터링",
+            source_content="감사 이력내역 확인",
             source_assignees="권민기, 김영재",
             source_frequency="일",
             creator=self.admin,
@@ -136,6 +138,93 @@ class TaskWorkProcessTests(unittest.TestCase):
         detail = self.client.get(f"/tasks/{self.task_id}")
         self.assertEqual(detail.status_code, 200)
         self.assertIn("등록된 업무 프로세스가 없습니다".encode(), detail.data)
+
+    def create_source_match(self, source_ref, **overrides):
+        values = {
+            "title": "DRM · 모니터링 복제",
+            "content": "현재 화면에서 수정된 업무 내용",
+            "department_id": self.department_id,
+            "assignee_id": self.admin_id,
+            "start_date": date(2026, 9, 3),
+            "target_date": date(2026, 9, 3),
+            "status": "진행중",
+            "progress": 0,
+            "repeat_cycle": "일간",
+            "repeat_detail": "일",
+            "source_ref": source_ref,
+            "source_name": "경영_보안전산팀 업무분장_260902.xlsx",
+            "source_sheet": None,
+            "source_category": "DRM",
+            "source_detail": "모니터링",
+            "source_content": "감사 이력내역 확인",
+            "source_assignees": "다른 담당자",
+            "source_frequency": "주1회",
+            "created_by_id": self.admin_id,
+        }
+        values.update(overrides)
+        task = Task(**values)
+        task.classifications.append(TaskClassification(name="루틴"))
+        db.session.add(task)
+        db.session.flush()
+        return task
+
+    def test_process_is_synchronized_to_every_exact_source_match(self):
+        matching = self.create_source_match("security-it:drm-monitoring-copy")
+        different = self.create_source_match(
+            "security-it:drm-monitoring-different",
+            source_content="다른 원본 업무 내용",
+            work_process="유지할 프로세스",
+        )
+        db.session.commit()
+
+        process = "1. 로그 확인\n2. 이상 내역 조치"
+        response = self.client.post(
+            f"/tasks/{self.task_id}/edit",
+            data=self.task_payload(process),
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(db.session.get(Task, matching.id).work_process, process)
+        self.assertEqual(db.session.get(Task, different.id).work_process, "유지할 프로세스")
+        self.assertIn("동일 원본 업무 1건".encode(), response.data)
+
+    def test_clearing_process_is_synchronized_to_exact_source_match(self):
+        matching = self.create_source_match(
+            "security-it:drm-monitoring-copy",
+            work_process="삭제될 프로세스",
+        )
+        self.task.work_process = "삭제될 프로세스"
+        db.session.commit()
+
+        response = self.client.post(
+            f"/tasks/{self.task_id}/edit",
+            data=self.task_payload(""),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNone(db.session.get(Task, matching.id).work_process)
+
+    def test_existing_exact_matches_use_latest_registered_process(self):
+        older = self.create_source_match(
+            "security-it:drm-monitoring-older",
+            work_process="이전 프로세스",
+        )
+        latest = self.create_source_match(
+            "security-it:drm-monitoring-latest",
+            work_process="최신 프로세스",
+        )
+        older.updated_at = date(2026, 9, 1)
+        latest.updated_at = date(2026, 9, 3)
+        db.session.commit()
+
+        changed_ids = synchronize_existing_source_work_processes()
+        db.session.commit()
+
+        self.assertIn(self.task_id, changed_ids)
+        self.assertIn(older.id, changed_ids)
+        self.assertEqual(db.session.get(Task, self.task_id).work_process, "최신 프로세스")
+        self.assertEqual(db.session.get(Task, older.id).work_process, "최신 프로세스")
 
 
 if __name__ == "__main__":

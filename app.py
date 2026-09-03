@@ -272,6 +272,7 @@ class Task(db.Model):
     source_sheet = db.Column(db.String(255), nullable=True)
     source_category = db.Column(db.String(100), nullable=True)
     source_detail = db.Column(db.String(150), nullable=True)
+    source_content = db.Column(db.Text, nullable=True)
     source_assignees = db.Column(db.String(250), nullable=True)
     source_frequency = db.Column(db.String(50), nullable=True)
     created_by_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
@@ -353,6 +354,72 @@ class Task(db.Model):
         if days < 0:
             return f"D+{abs(days)}"
         return f"D-{days}"
+
+
+SOURCE_WORK_PROCESS_IDENTITY_FIELDS = (
+    "source_name",
+    "source_sheet",
+    "source_category",
+    "source_detail",
+    "source_content",
+)
+
+
+def source_work_process_identity(task):
+    """Return the immutable source identity used to share a work process."""
+    if not task.source_ref:
+        return None
+    return tuple(getattr(task, field) for field in SOURCE_WORK_PROCESS_IDENTITY_FIELDS)
+
+
+def source_work_process_condition(task):
+    identity = source_work_process_identity(task)
+    if identity is None:
+        return None
+    conditions = [Task.source_ref.is_not(None)]
+    for field, value in zip(SOURCE_WORK_PROCESS_IDENTITY_FIELDS, identity):
+        column = getattr(Task, field)
+        conditions.append(column.is_(None) if value is None else column == value)
+    return and_(*conditions)
+
+
+def synchronize_task_work_process(task):
+    """Apply one imported task's process to every exact source match."""
+    condition = source_work_process_condition(task)
+    if condition is None:
+        return []
+    matching_tasks = db.session.scalars(
+        select(Task).where(condition, Task.id != task.id)
+    ).all()
+    changed_ids = []
+    for matching_task in matching_tasks:
+        if matching_task.work_process != task.work_process:
+            matching_task.work_process = task.work_process
+            changed_ids.append(matching_task.id)
+    return changed_ids
+
+
+def synchronize_existing_source_work_processes():
+    """Backfill exact source groups from their most recently updated process."""
+    source_tasks = db.session.scalars(
+        select(Task)
+        .where(Task.source_ref.is_not(None))
+        .order_by(Task.updated_at.desc(), Task.id.desc())
+    ).all()
+    groups = {}
+    for task in source_tasks:
+        groups.setdefault(source_work_process_identity(task), []).append(task)
+
+    changed_ids = []
+    for tasks in groups.values():
+        latest_process = next((task.work_process for task in tasks if task.work_process), None)
+        if not latest_process:
+            continue
+        for task in tasks:
+            if task.work_process != latest_process:
+                task.work_process = latest_process
+                changed_ids.append(task.id)
+    return changed_ids
 
 
 class TaskClassification(db.Model):
@@ -678,6 +745,7 @@ def import_security_it_tasks():
             source_sheet=item["source_sheet"],
             source_category=item["category"],
             source_detail=item["detail"],
+            source_content=item["content"],
             source_assignees=", ".join(item["assignees"]),
             source_frequency=frequency,
             created_by_id=admin_user.id,
@@ -878,6 +946,8 @@ def seed_reference_data():
             )
     db.session.commit()
     import_security_it_tasks()
+    if synchronize_existing_source_work_processes():
+        db.session.commit()
 
 
 def run_startup_tasks(app):
@@ -1254,6 +1324,7 @@ def create_app(test_config=None):
                     for name in types:
                         if name not in existing_classifications:
                             target.classifications.append(TaskClassification(name=name))
+                    synchronized_task_ids = synchronize_task_work_process(target)
                     if old_status != target.status:
                         db.session.add(
                             TaskStatusLog(
@@ -1269,12 +1340,20 @@ def create_app(test_config=None):
                         {
                             "title": target.title,
                             "work_process_updated": bool(target.work_process),
+                            "work_process_synchronized_task_ids": synchronized_task_ids,
                             "calendar_selected": target.calendar_selected,
                             "calendar_registration": target.calendar_registration_label,
                         },
                     )
                     db.session.commit()
-                    flash("업무가 저장되었습니다.", "success")
+                    if synchronized_task_ids:
+                        flash(
+                            f"업무가 저장되었으며 동일 원본 업무 {len(synchronized_task_ids)}건의 "
+                            "업무 프로세스도 함께 업데이트되었습니다.",
+                            "success",
+                        )
+                    else:
+                        flash("업무가 저장되었습니다.", "success")
                     return redirect(url_for("task_detail", task_id=target.id))
         return render_template("tasks.html", mode="form", task=task, departments=departments, employees=employees)
 
