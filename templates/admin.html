@@ -1,10 +1,43 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-heading"><div><span class="eyebrow">ADMINISTRATION</span><h1>관리자 설정</h1><p>임직원·권한·메뉴·게시판·일정과 감사로그를 관리합니다.</p></div></div>
+<div class="page-heading"><div><span class="eyebrow">ADMINISTRATION</span><h1>관리자 설정</h1><p>임직원·권한·메뉴·게시판·일정과 감사로그를 관리합니다.</p></div>{% if section == 'employees' %}<button class="button primary" type="button" data-dialog="employee-register-dialog">+ 임직원 등록</button>{% endif %}</div>
 <nav class="admin-tabs"><a class="{{ 'active' if section=='employees' }}" href="{{ url_for('admin', section='employees') }}">임직원</a><a class="{{ 'active' if section=='roles' }}" href="{{ url_for('admin', section='roles') }}">권한</a><a class="{{ 'active' if section=='departments' }}" href="{{ url_for('admin', section='departments') }}">부서</a><a class="{{ 'active' if section=='menus' }}" href="{{ url_for('admin', section='menus') }}">메뉴</a><a class="{{ 'active' if section=='boards' }}" href="{{ url_for('admin', section='boards') }}">게시판</a><a class="{{ 'active' if section=='schedules' }}" href="{{ url_for('admin', section='schedules') }}">일정</a><a class="{{ 'active' if section=='audits' }}" href="{{ url_for('admin', section='audits') }}">감사로그</a></nav>
 
 {% if section == 'employees' %}
-<section class="content-grid admin-grid"><article class="panel span-2"><div class="panel-head"><div><h2>임직원 목록</h2><p>퇴사자는 삭제하지 않고 계정을 비활성화합니다.</p></div></div><div class="table-wrap"><table><thead><tr><th>임직원</th><th>소속/직급</th><th>로그인ID</th><th>권한</th><th>상태</th><th>관리</th></tr></thead><tbody>{% for item in employees %}<tr><td><strong>{{ item.name }}</strong><small>{{ item.employee_no or '-' }}</small></td><td>{{ item.department.name }}<small>{{ item.position or '-' }}</small></td><td>{{ item.login_id }}</td><td>{{ item.role.name }}</td><td><span class="status {{ 'done' if item.status=='재직' else 'hold' }}">{{ item.status }}</span></td><td><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="employee_id" value="{{ item.id }}"><button class="button ghost small" name="action" value="{{ 'terminate' if item.status=='재직' else 'reactivate' }}">{{ '퇴사처리' if item.status=='재직' else '재등록' }}</button></form></td></tr>{% endfor %}</tbody></table></div></article><aside class="panel"><h2>임직원 등록</h2><form method="post" class="stack-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="create"><label>이름<input name="name" required></label><label>사번<input name="employee_no"></label><label>부서<select name="department_id">{% for item in departments %}<option value="{{ item.id }}">{{ item.name }}</option>{% endfor %}</select></label><label>직급<input name="position"></label><label>이메일<input type="email" name="email"></label><label>연락처<input name="phone"></label><label>로그인 ID<input name="login_id" required></label><label>초기 비밀번호<input type="password" name="password" minlength="10" required></label><label>권한<select name="role_id">{% for item in roles %}<option value="{{ item.id }}">{{ item.name }}</option>{% endfor %}</select></label><label>입사일<input type="date" name="hire_date" value="{{ today }}"></label><button class="button primary wide">등록</button></form></aside></section>
+<section class="content-grid admin-grid">
+  <article class="panel employee-management-panel">
+    <div class="panel-head"><div><h2>임직원 관리</h2><p>계정 ID, 이름, 사번 또는 부서로 임직원을 찾을 수 있습니다.</p></div></div>
+    <div class="employee-toolbar">
+      <input type="search" placeholder="계정 ID, 이름, 사번, 부서 검색" aria-label="임직원 검색" data-employee-search>
+      <span class="employee-active-count"><i></i> 활성 임직원 <strong>{{ employees|selectattr('status', 'equalto', '재직')|list|length }}</strong>명</span>
+    </div>
+    <div class="table-wrap"><table><thead><tr><th>임직원</th><th>부서(팀)·직급</th><th>로그인ID</th><th>권한</th><th>상태</th><th>관리</th></tr></thead><tbody>
+      {% for item in employees %}<tr data-employee-row data-search-text="{{ item.login_id }} {{ item.name }} {{ item.employee_no or '' }} {{ item.department.name }}"><td><strong>{{ item.name }}</strong><small>{{ item.employee_no or '-' }}</small></td><td>{{ item.department.name }}<small>{{ item.position or '-' }}</small></td><td>{{ item.login_id }}</td><td>{{ item.role.name }}</td><td><span class="status {{ 'done' if item.status=='재직' else 'hold' }}">{{ item.status }}</span></td><td><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="employee_id" value="{{ item.id }}"><button class="button ghost small" name="action" value="{{ 'terminate' if item.status=='재직' else 'reactivate' }}">{{ '퇴사처리' if item.status=='재직' else '재등록' }}</button></form></td></tr>{% endfor %}
+      <tr class="employee-search-empty" data-employee-search-empty hidden><td colspan="6" class="empty">검색 결과가 없습니다.</td></tr>
+    </tbody></table></div>
+  </article>
+  <dialog id="employee-register-dialog" class="employee-register-dialog">
+    <form method="post" class="dialog-form">
+      <div class="dialog-head"><div><span class="eyebrow">ADMIN ONLY</span><h2>임직원 계정 등록</h2></div><button type="button" data-close aria-label="닫기">×</button></div>
+      <p>로그인에 사용할 계정 ID와 초기 정보를 입력합니다.</p>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="create">
+      <div class="form-grid employee-register-grid">
+        <label>계정 ID<input name="login_id" minlength="4" maxlength="30" placeholder="영문·숫자 4~30자" required></label>
+        <label>성명<input name="name" placeholder="성명" required></label>
+        <label>사번<input name="employee_no" placeholder="사번"></label>
+        <label>부서(팀)<select name="department_id" required><option value="" selected disabled>부서(팀)를 선택하세요</option>{% for item in employee_departments %}<option value="{{ item.id }}">{{ item.name }}</option>{% endfor %}</select></label>
+        <label>직급<input name="position" placeholder="직급"></label>
+        <label>이메일(선택)<input type="email" name="email" placeholder="name@company.com"></label>
+        <label>권한<select name="role_id">{% for item in roles %}<option value="{{ item.id }}">{{ item.name }}</option>{% endfor %}</select></label>
+        <label>연락처<input name="phone" placeholder="010-0000-0000"></label>
+        <label>입사일<input type="date" name="hire_date" value="{{ today }}"></label>
+        <label class="span-2">초기 비밀번호<input type="password" name="password" minlength="10" placeholder="영문·숫자 포함 10자 이상" required></label>
+      </div>
+      <div class="dialog-actions"><button class="button ghost" type="button" data-close>취소</button><button class="button primary" type="submit">계정 등록</button></div>
+    </form>
+  </dialog>
+</section>
 
 {% elif section == 'roles' %}
 <section class="content-grid admin-grid"><article class="panel span-2"><div class="table-wrap"><table><thead><tr><th>권한명</th><th>데이터 범위</th><th>세부 권한</th><th>사용자</th></tr></thead><tbody>{% for item in roles %}<tr><td><strong>{{ item.name }}</strong></td><td>{{ {'all':'전체','department':'부서한정','own':'개인한정'}.get(item.data_scope) }}</td><td>{{ (item.permissions or {}).keys()|join(', ') }}</td><td>{{ item.employees|length }}명</td></tr>{% endfor %}</tbody></table></div></article><aside class="panel"><h2>권한 생성</h2><form method="post" class="stack-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>권한명<input name="name" required></label><label>데이터 범위<select name="data_scope"><option value="all">전체</option><option value="department">부서한정</option><option value="own">개인한정</option></select></label><fieldset><legend>세부 권한</legend><label class="inline-check"><input type="checkbox" name="permissions" value="task_manage_all"> 전체 업무 관리</label><label class="inline-check"><input type="checkbox" name="permissions" value="task_manage_department"> 부서 업무 관리</label><label class="inline-check"><input type="checkbox" name="permissions" value="meeting_all"> 회의자료 전체 관리</label><label class="inline-check"><input type="checkbox" name="permissions" value="schedule_view_all"> 전체 일정 조회</label></fieldset><button class="button primary wide">생성</button></form></aside></section>

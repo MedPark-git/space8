@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from datetime import date, datetime, timedelta, timezone
 from functools import wraps
 from urllib.parse import quote_plus, urlparse
@@ -59,6 +60,7 @@ DASHBOARD_TASK_TYPES = (
     {"label": "주요업무", "type_name": "주요", "tone": "major"},
 )
 DASHBOARD_DEPARTMENT_ORDER = ("재무운영팀", "인사총무팀", "보안전산팀")
+EMPLOYEE_DEPARTMENTS = ("보안전산팀", "인사총무팀", "재무운영팀")
 
 
 def normalize_cadence_value(value):
@@ -753,30 +755,33 @@ def seed_reference_data():
         db.session.delete(legacy_schedule_menu)
     db.session.flush()
 
-    root = db.session.scalar(select(Department).where(Department.name == "경영사업본부"))
-    for name in ("재무운영팀", "인사총무팀", "보안전산팀"):
+    for name in EMPLOYEE_DEPARTMENTS:
         department = db.session.scalar(select(Department).where(Department.name == name))
         if not department:
             department = Department(name=name)
             db.session.add(department)
         department.active = True
-        if root and department.parent_id == root.id:
-            department.parent_id = None
+        department.parent_id = None
     db.session.flush()
 
-    if root:
-        for child in list(root.children):
+    for division_name in ("경영사업본부", "마케팅사업본부", "기술사업본부"):
+        division = db.session.scalar(select(Department).where(Department.name == division_name))
+        if not division:
+            continue
+        for child in list(division.children):
             child.parent_id = None
-        db.session.execute(update(Schedule).where(Schedule.department_id == root.id).values(department_id=None))
+        db.session.execute(
+            update(Schedule).where(Schedule.department_id == division.id).values(department_id=None)
+        )
         db.session.flush()
         hard_reference_count = sum(
-            db.session.scalar(select(func.count(model.id)).where(model.department_id == root.id)) or 0
+            db.session.scalar(select(func.count(model.id)).where(model.department_id == division.id)) or 0
             for model in (Employee, Task, DailyMeeting)
         )
         if hard_reference_count:
-            root.active = False
+            division.active = False
         else:
-            db.session.delete(root)
+            db.session.delete(division)
         db.session.flush()
 
     menu_specs = [
@@ -1520,16 +1525,27 @@ def create_app(test_config=None):
                 audit("EMPLOYEE_TERMINATE" if action == "terminate" else "EMPLOYEE_REACTIVATE", f"employee:{employee.id}")
                 return
             password = request.form.get("password", "")
-            if len(password) < 10:
-                raise ValueError("초기 비밀번호는 10자 이상이어야 합니다.")
+            login_id = request.form.get("login_id", "").strip()
+            if not re.fullmatch(r"[A-Za-z0-9]{4,30}", login_id):
+                raise ValueError("계정 ID는 영문과 숫자만 사용하여 4~30자로 입력해 주세요.")
+            if len(password) < 10 or not any(character.isalpha() for character in password) or not any(
+                character.isdigit() for character in password
+            ):
+                raise ValueError("초기 비밀번호는 영문과 숫자를 포함하여 10자 이상이어야 합니다.")
+            department_id = request.form.get("department_id", type=int)
+            if not department_id:
+                raise ValueError("부서(팀)를 선택해 주세요.")
+            department = db.session.get(Department, department_id)
+            if not department or not department.active or department.name not in EMPLOYEE_DEPARTMENTS:
+                raise ValueError("등록 가능한 부서(팀)는 보안전산팀, 인사총무팀, 재무운영팀입니다.")
             employee = Employee(
                 name=request.form["name"].strip(),
                 employee_no=request.form.get("employee_no", "").strip() or None,
-                department_id=int(request.form["department_id"]),
+                department_id=department_id,
                 position=request.form.get("position", "").strip(),
                 email=request.form.get("email", "").strip() or None,
                 phone=request.form.get("phone", "").strip() or None,
-                login_id=request.form["login_id"].strip(),
+                login_id=login_id,
                 role_id=int(request.form["role_id"]),
                 status="재직",
                 hire_date=date.fromisoformat(request.form["hire_date"]) if request.form.get("hire_date") else date.today(),
@@ -1612,6 +1628,11 @@ def create_app(test_config=None):
             ).all(),
             "employees": db.session.scalars(select(Employee).order_by(Employee.status, Employee.name)).all(),
         }
+        if section == "employees":
+            departments_by_name = {item.name: item for item in common["departments"]}
+            common["employee_departments"] = [
+                departments_by_name[name] for name in EMPLOYEE_DEPARTMENTS if name in departments_by_name
+            ]
         if section == "menus":
             common["menus"] = db.session.scalars(select(Menu).order_by(Menu.sort_order)).all()
         elif section == "boards":

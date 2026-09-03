@@ -102,12 +102,32 @@ const initCadenceFiltering = () => {
   });
 };
 
+const initEmployeeSearch = (root = document) => {
+  const search = root.querySelector("[data-employee-search]");
+  const rows = [...root.querySelectorAll("[data-employee-row]")];
+  const emptyRow = root.querySelector("[data-employee-search-empty]");
+  if (!search || search.dataset.searchBound) return;
+  search.dataset.searchBound = "true";
+
+  search.addEventListener("input", () => {
+    const keyword = search.value.trim().toLocaleLowerCase("ko");
+    let visibleCount = 0;
+    rows.forEach((row) => {
+      const visible = !keyword || (row.dataset.searchText || "").toLocaleLowerCase("ko").includes(keyword);
+      row.hidden = !visible;
+      if (visible) visibleCount += 1;
+    });
+    if (emptyRow) emptyRow.hidden = visibleCount > 0;
+  });
+};
+
 document.addEventListener("DOMContentLoaded", () => {
   const nav = document.querySelector(".main-nav");
   document.querySelector(".nav-toggle")?.addEventListener("click", () => nav?.classList.toggle("open"));
   initDialogs();
   initBulkJournal();
   initCadenceFiltering();
+  initEmployeeSearch();
 
   setTimeout(() => document.querySelectorAll(".flash").forEach((item) => item.remove()), 6000);
 });
