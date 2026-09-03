@@ -7,7 +7,7 @@
 
 <section class="task-type-overview" aria-labelledby="task-type-overview-title">
   <div class="task-type-overview-heading">
-    <div><h2 id="task-type-overview-title">업무 유형별 종합 현황</h2><p>업무 유형별 총 건수와 부서별·상태별 현황을 한눈에 확인합니다.</p></div>
+    <div><h2 id="task-type-overview-title">업무 유형별 종합 현황</h2><p>업무 유형별 총 건수와 부서(팀)별·상태별 현황을 한눈에 확인합니다.</p></div>
     <a class="button ghost small" href="{{ url_for('task_list') }}">전체 업무 보기</a>
   </div>
   <div class="task-type-summary-grid">
@@ -37,7 +37,7 @@
     <div class="panel-head"><div><h2>{{ title }}</h2><p>일간·지속 업무를 제외한 열람 권한 범위의 업무</p></div><a href="{{ url_for('task_list', task_type=task_type) }}">전체보기 →</a></div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>부서</th><th>업무내용</th><th>남은기간</th><th>담당자</th></tr></thead>
+        <thead><tr><th>부서(팀)</th><th>업무내용</th><th>남은기간</th><th>담당자</th></tr></thead>
         <tbody>
         {% for task in board_tasks %}
           <tr class="status-row {{ task.status_class }}">

@@ -1,6 +1,8 @@
 import os
+import io
 import unittest
 
+from openpyxl import load_workbook
 from werkzeug.security import generate_password_hash
 
 
@@ -119,6 +121,31 @@ class EmployeeRegistrationTests(unittest.TestCase):
         self.assertIn("임직원 계정 등록 신청".encode(), response.data)
         self.assertIn("아마란스 계정".encode(), response.data)
         self.assertIn(b'href="/register"', response.data)
+
+    def test_department_team_label_is_used_across_pages_and_excel_template(self):
+        self.assertEqual(self.login("admin1", "AdminPass123").status_code, 302)
+        expected_by_path = {
+            "/tasks": ["각 부서(팀) 업무 현황", "부서(팀) 선택", "각 부서(팀) 업무 목록"],
+            "/tasks/new": ["부서(팀)"],
+            "/calendar": ["전체 부서(팀)", "부서(팀)"],
+            "/journals": ["부서(팀)"],
+            "/admin/employees": ["부서(팀)로 임직원", "부서(팀) 검색"],
+            "/admin/roles": ["부서(팀) 한정", "부서(팀) 업무 관리"],
+            "/admin/departments": ["부서(팀) 생성", "부서(팀)명"],
+            "/admin/schedules": ["부서(팀)/담당자", ">부서(팀)<"],
+        }
+        for path, expected_labels in expected_by_path.items():
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                page = response.data.decode()
+                for label in expected_labels:
+                    self.assertIn(label, page)
+
+        response = self.client.get("/tasks/excel-template")
+        self.assertEqual(response.status_code, 200)
+        workbook = load_workbook(io.BytesIO(response.data), read_only=True)
+        self.assertEqual(workbook.active["D1"].value, "부서(팀)")
 
     def test_registration_hides_permission_and_forces_member_role(self):
         page = self.client.get("/register")

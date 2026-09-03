@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
 {% if mode == 'list' %}
-<div class="page-heading"><div><span class="eyebrow">DEPARTMENT TASKS</span><h1>각 부서 업무 현황</h1><p>{% if can_view_all_tasks %}전체 부서 업무를 조회하며 등록·수정은 소속 부서 범위로 제한됩니다.{% else %}소속 부서 업무만 조회·등록·수정할 수 있습니다.{% endif %}</p></div><a class="button primary" href="{{ url_for('task_new') }}">+ 업무 등록</a></div>
+<div class="page-heading"><div><span class="eyebrow">DEPARTMENT TASKS</span><h1>각 부서(팀) 업무 현황</h1><p>{% if can_view_all_tasks %}전체 부서(팀) 업무를 조회하며 등록·수정은 소속 부서(팀) 범위로 제한됩니다.{% else %}소속 부서(팀) 업무만 조회·등록·수정할 수 있습니다.{% endif %}</p></div><a class="button primary" href="{{ url_for('task_new') }}">+ 업무 등록</a></div>
 <section class="department-selector-panel" aria-labelledby="department-selector-title">
   <div class="department-selector-heading">
-    <div><h2 id="department-selector-title">부서 선택</h2><p>아이콘을 선택하면 해당 부서의 업무만 표시됩니다.</p></div>
-    {% if can_view_all_tasks %}<a class="button ghost small" href="{{ url_for('task_list') }}">전체 부서 보기</a>{% endif %}
+    <div><h2 id="department-selector-title">부서(팀) 선택</h2><p>아이콘을 선택하면 해당 부서(팀)의 업무만 표시됩니다.</p></div>
+    {% if can_view_all_tasks %}<a class="button ghost small" href="{{ url_for('task_list') }}">전체 부서(팀) 보기</a>{% endif %}
   </div>
   <div class="department-summary-grid department-selector-grid">
   {% for item in department_summaries %}
@@ -23,7 +23,7 @@
         <svg viewBox="0 0 24 24" role="img"><path d="M4 20V7h16v13M8 7V4h8v3M8 11h2m4 0h2m-8 4h2m4 0h2M3 20h18"/></svg>
         {% endif %}
       </span>
-      <span class="department-selector-label"><strong>{{ item.department.name }}</strong><small>부서 업무 보기</small></span>
+      <span class="department-selector-label"><strong>{{ item.department.name }}</strong><small>부서(팀) 업무 보기</small></span>
       <span class="department-selector-check" aria-hidden="true">✓</span>
     </span>
     <div class="department-summary-counts">
@@ -50,7 +50,7 @@
 <section class="panel filter-panel" data-task-filter-panel>
   <form method="get" class="filter-grid">
     <label>검색<input type="search" name="q" value="{{ request.args.get('q','') }}" placeholder="제목 또는 내용"></label>
-    <label>부서<select name="department_id"><option value="">전체</option>{% for item in departments %}<option value="{{ item.id }}" {{ 'selected' if request.args.get('department_id') == item.id|string }}>{{ item.name }}</option>{% endfor %}</select></label>
+    <label>부서(팀)<select name="department_id"><option value="">전체</option>{% for item in departments %}<option value="{{ item.id }}" {{ 'selected' if request.args.get('department_id') == item.id|string }}>{{ item.name }}</option>{% endfor %}</select></label>
     <label>담당자<select name="assignee_id"><option value="">전체</option>{% for item in employees %}<option value="{{ item.id }}" {{ 'selected' if request.args.get('assignee_id') == item.id|string }}>{{ item.name }}</option>{% endfor %}</select></label>
     <label>업무유형<select name="task_type"><option value="">전체</option>{% for item in TASK_TYPES %}<option {{ 'selected' if request.args.get('task_type') == item }}>{{ item }}</option>{% endfor %}</select></label>
     <label>업무주기<select name="cadence"><option value="">전체</option>{% for item in cadence_summaries %}<option value="{{ item.key }}" {{ 'selected' if selected_cadence == item.key }}>{{ item.label }}</option>{% endfor %}</select></label>
@@ -62,7 +62,7 @@
 </section>
 <section class="panel" data-task-results aria-live="polite">
   <div class="panel-head">
-    <div><h2>각 부서 업무 목록</h2><p>총 {{ pagination.total }}건 · 체크한 업무를 업무일지·주요업무·캘린더에 등록하거나 권한에 따라 삭제할 수 있습니다.</p></div>
+    <div><h2>각 부서(팀) 업무 목록</h2><p>총 {{ pagination.total }}건 · 체크한 업무를 업무일지·주요업무·캘린더에 등록하거나 권한에 따라 삭제할 수 있습니다.</p></div>
     <div class="button-row task-bulk-actions">
       <button class="button primary small" type="submit" form="taskBulkForm" formaction="{{ url_for('journal_add_tasks') }}" data-bulk-journal disabled>
         <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5"/></svg><span data-bulk-label>업무일지에 일괄 담기</span>
@@ -86,7 +86,7 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="work_date" value="{{ today.isoformat() }}">
     <input type="hidden" name="return_to" value="{{ request.full_path }}">
-    <div class="table-wrap"><table><thead><tr><th class="bulk-select"><input type="checkbox" data-check-all aria-label="현재 페이지 전체 선택"></th><th>부서</th><th>업무</th><th>업무주기</th><th>담당자</th><th>기간</th><th>진행률</th><th>상태</th><th>관리</th></tr></thead><tbody>
+    <div class="table-wrap"><table><thead><tr><th class="bulk-select"><input type="checkbox" data-check-all aria-label="현재 페이지 전체 선택"></th><th>부서(팀)</th><th>업무</th><th>업무주기</th><th>담당자</th><th>기간</th><th>진행률</th><th>상태</th><th>관리</th></tr></thead><tbody>
       {% for task in pagination.items %}<tr class="status-row {{ task.status_class }}"><td class="bulk-select"><input type="checkbox" name="task_ids" value="{{ task.id }}" data-task-check data-journal-selectable="{{ 'true' if task.id in journal_selectable_ids else 'false' }}" data-calendar-selectable="{{ 'true' if task.id in calendar_selectable_ids else 'false' }}" data-calendar-removable="{{ 'true' if task.id in calendar_removable_ids else 'false' }}" data-major-selectable="{{ 'true' if task.id in major_selectable_ids else 'false' }}" data-deletable="{{ 'true' if task.id in deletable_task_ids else 'false' }}" aria-label="{{ task.title }} 선택" {{ 'disabled' if task.id not in selectable_task_ids }} title="{{ '' if task.id in selectable_task_ids else '이 업무에 사용할 수 있는 일괄 작업이 없습니다.' }}"></td><td><strong>{{ task.department.name }}</strong></td><td><a class="task-title" href="{{ url_for('task_detail', task_id=task.id) }}">{{ task.title }}</a><small>{{ (task.content or '')|truncate(42) }}</small></td><td><span class="cadence-badge {{ task.cadence_key }}">{{ task.cadence_label }}</span>{% if task.cadence_detail and task.cadence_detail != task.cadence_label %}<small>{{ task.cadence_detail }}</small>{% endif %}</td><td>{{ task.display_assignees }}</td><td>{{ task.start_date.strftime('%y.%m.%d') }} ~ {{ task.target_date.strftime('%y.%m.%d') }}<small>{{ '완료' if task.remaining_days is none else ('D' ~ ('+' if task.remaining_days < 0 else '-') ~ (task.remaining_days|abs)) }}</small></td><td><div class="progress"><span style="width:{{ task.progress }}%"></span></div><small>{{ task.progress }}%</small></td><td><span class="status {{ task.status_class }}">{{ task.status }}</span></td><td>{% if task.id in deletable_task_ids %}<button class="button danger small" type="submit" form="taskBulkForm" formaction="{{ url_for('task_delete', task_id=task.id) }}" onclick="return confirm('이 업무를 삭제하시겠습니까? 목록에서는 제외되지만 기존 업무일지·회의·감사 이력은 보존됩니다.')">삭제</button>{% else %}<span class="permission-muted">-</span>{% endif %}</td></tr>
       {% else %}<tr><td colspan="9" class="empty">조회된 업무가 없습니다.</td></tr>{% endfor %}
     </tbody></table></div>
@@ -101,7 +101,7 @@
 <section class="panel excel-register-panel">
   <div class="excel-register-info">
     <span class="excel-icon">XLSX</span>
-    <div><span class="eyebrow">BULK REGISTRATION</span><h2>엑셀로 업무 일괄 등록</h2><p>개인별·부서별 기존 업무가 많은 경우 제공된 양식에 작성하여 한 번에 등록할 수 있습니다.</p></div>
+    <div><span class="eyebrow">BULK REGISTRATION</span><h2>엑셀로 업무 일괄 등록</h2><p>개인별·부서(팀)별 기존 업무가 많은 경우 제공된 양식에 작성하여 한 번에 등록할 수 있습니다.</p></div>
   </div>
   <div class="excel-register-actions">
     <a class="button ghost" href="{{ url_for('task_excel_template') }}">① 엑셀 양식 다운로드</a>
@@ -111,7 +111,7 @@
       <button class="button primary" type="submit">③ 엑셀 업무 등록</button>
     </form>
   </div>
-  <div class="excel-register-guide"><strong>등록 항목</strong><span>제목</span><span>내용</span><span>업무 분류</span><span>부서</span><span>담당자</span><span>착수일</span><span>목표일</span><span>상태</span><span>진행률</span><span>반복주기</span><span>캘린더 등록</span></div>
+  <div class="excel-register-guide"><strong>등록 항목</strong><span>제목</span><span>내용</span><span>업무 분류</span><span>부서(팀)</span><span>담당자</span><span>착수일</span><span>목표일</span><span>상태</span><span>진행률</span><span>반복주기</span><span>캘린더 등록</span></div>
 </section>
 <div class="section-divider"><span>또는 화면에서 직접 등록</span></div>
 {% endif %}
@@ -123,7 +123,7 @@
     <p>주요업무·대표이사님 수명업무도 선택을 해제하면 캘린더에서 제외할 수 있습니다. 원본 업무는 삭제되지 않습니다.</p>
   </div>
   <div class="form-grid"><label class="span-2">업무 제목<input name="title" required maxlength="250" value="{{ task.title if task else '' }}"></label><label class="span-2">업무 내용<textarea name="content" rows="5">{{ task.content if task else '' }}</textarea></label><label class="span-2">업무 프로세스<textarea name="work_process" rows="7" placeholder="업무 수행 순서와 확인사항을 단계별로 입력해 주세요.">{{ task.work_process if task and task.work_process else '' }}</textarea><small class="span-2 form-help">입력한 줄바꿈을 유지해 상세 화면에 표시하며, 원본 파일·대분류·세부구분·업무 내용이 같은 업무에도 자동 반영됩니다.</small></label>
-    <label>부서<select name="department_id" required>{% for item in departments %}<option value="{{ item.id }}" {{ 'selected' if (task and task.department_id == item.id) or (not task and current_user.department_id == item.id) }}>{{ item.name }}</option>{% endfor %}</select></label>
+    <label>부서(팀)<select name="department_id" required>{% for item in departments %}<option value="{{ item.id }}" {{ 'selected' if (task and task.department_id == item.id) or (not task and current_user.department_id == item.id) }}>{{ item.name }}</option>{% endfor %}</select></label>
     <label>담당자<select name="assignee_id" required>{% for item in employees %}<option value="{{ item.id }}" {{ 'selected' if (task and task.assignee_id == item.id) or (not task and current_user.id == item.id) }}>{{ item.name }} · {{ item.department.name }}</option>{% endfor %}</select></label>
     <label>착수일<input type="date" name="start_date" required value="{{ task.start_date.isoformat() if task else today.isoformat() }}"></label><label>목표일<input type="date" name="target_date" required value="{{ task.target_date.isoformat() if task else today.isoformat() }}"></label>
     <label>상태<select name="status">{% for item in TASK_STATUSES %}<option {{ 'selected' if task and task.status == item }}>{{ item }}</option>{% endfor %}</select></label><label>진행률 (%)<input type="number" name="progress" min="0" max="100" value="{{ task.progress if task else 0 }}"></label>
@@ -132,7 +132,7 @@
 </form>
 
 {% elif mode == 'masked' %}
-<div class="page-heading"><div><span class="eyebrow">PRIVATE TASK</span><h1>비공개 업무</h1><p>타 부서 업무의 상세 내용은 열람할 수 없습니다.</p></div></div><section class="panel masked-panel"><div class="lock-icon">🔒</div><h2>비공개</h2><p>업무 번호 #{{ task.id }} · {{ task.department.name }}</p><span class="status {{ task.status_class }}">{{ task.status }}</span></section>
+<div class="page-heading"><div><span class="eyebrow">PRIVATE TASK</span><h1>비공개 업무</h1><p>타 부서(팀) 업무의 상세 내용은 열람할 수 없습니다.</p></div></div><section class="panel masked-panel"><div class="lock-icon">🔒</div><h2>비공개</h2><p>업무 번호 #{{ task.id }} · {{ task.department.name }}</p><span class="status {{ task.status_class }}">{{ task.status }}</span></section>
 
 {% else %}
 <div class="page-heading"><div><span class="eyebrow">TASK #{{ task.id }}</span><h1>{{ task.title }}</h1><p>{{ task.department.name }} · {{ task.display_assignees }}</p></div><div class="button-row">{% if can_edit %}<a class="button primary" href="{{ url_for('task_edit', task_id=task.id) }}">수정</a>{% endif %}{% if can_delete %}<form class="task-delete-form" method="post" action="{{ url_for('task_delete', task_id=task.id) }}" onsubmit="return confirm('이 업무를 삭제하시겠습니까? 목록에서는 제외되지만 기존 업무일지·회의·감사 이력은 보존됩니다.')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger" type="submit">삭제</button></form>{% endif %}<a class="button ghost" href="{{ url_for('task_list') }}">목록</a></div></div>

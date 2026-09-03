@@ -773,7 +773,7 @@ def import_security_it_tasks():
         select(Employee).where(Employee.login_id == os.getenv("BOOTSTRAP_ADMIN_ID", "admin"))
     )
     if not department or not admin_user:
-        raise RuntimeError("보안전산팀 업무를 등록할 부서 또는 관리자 계정을 찾을 수 없습니다.")
+        raise RuntimeError("보안전산팀 업무를 등록할 부서(팀) 또는 관리자 계정을 찾을 수 없습니다.")
 
     recurring_frequencies = {"일", "주1회", "월1회", "월2회", "분기별", "년1회", "년1회이상", "지속"}
     repeat_cycles = {
@@ -910,15 +910,19 @@ def seed_reference_data():
             role.is_system = is_system
         roles[name] = role
 
-    legacy_task_menu = db.session.scalar(select(Menu).where(Menu.name == "업무현황"))
-    current_task_menu = db.session.scalar(select(Menu).where(Menu.name == "각 부서 업무 현황"))
-    if legacy_task_menu and not current_task_menu:
-        legacy_task_menu.name = "각 부서 업무 현황"
-    elif legacy_task_menu and current_task_menu:
-        for role in list(legacy_task_menu.roles):
-            if role not in current_task_menu.roles:
-                current_task_menu.roles.append(role)
-        db.session.delete(legacy_task_menu)
+    current_task_menu = db.session.scalar(
+        select(Menu).where(Menu.name == "각 부서(팀) 업무 현황")
+    )
+    for legacy_name in ("업무현황", "각 부서 업무 현황"):
+        legacy_task_menu = db.session.scalar(select(Menu).where(Menu.name == legacy_name))
+        if legacy_task_menu and not current_task_menu:
+            legacy_task_menu.name = "각 부서(팀) 업무 현황"
+            current_task_menu = legacy_task_menu
+        elif legacy_task_menu and current_task_menu:
+            for role in list(legacy_task_menu.roles):
+                if role not in current_task_menu.roles:
+                    current_task_menu.roles.append(role)
+            db.session.delete(legacy_task_menu)
     db.session.flush()
 
     legacy_schedule_menu = db.session.scalar(
@@ -965,7 +969,7 @@ def seed_reference_data():
 
     menu_specs = [
         ("통합현황", "/", 10),
-        ("각 부서 업무 현황", "/tasks", 20),
+        ("각 부서(팀) 업무 현황", "/tasks", 20),
         ("업무등록", "/tasks/new", 30),
         ("일정(캘린더)", "/calendar", 40),
         ("일일회의", "/meetings", 50),
@@ -989,7 +993,7 @@ def seed_reference_data():
     if bootstrap_hash and not db.session.scalar(select(Employee).where(Employee.login_id == bootstrap_id)):
         dept = db.session.scalar(select(Department).where(Department.name == "보안전산팀"))
         if not dept:
-            raise RuntimeError("관리자 계정용 보안전산팀 부서를 찾을 수 없습니다.")
+            raise RuntimeError("관리자 계정용 보안전산팀 부서(팀)를 찾을 수 없습니다.")
         db.session.add(
             Employee(
                 name=os.getenv("BOOTSTRAP_ADMIN_NAME", "시스템관리자"),
@@ -1703,7 +1707,7 @@ def create_app(test_config=None):
                 if not can_write_department(department_id):
                     abort(403)
                 if assignee.department_id != department_id:
-                    flash("담당자는 업무 부서에 소속된 임직원만 지정할 수 있습니다.", "danger")
+                    flash("담당자는 업무 부서(팀)에 소속된 임직원만 지정할 수 있습니다.", "danger")
                     return render_template("tasks.html", mode="form", task=task, departments=departments, employees=employees)
                 old_status = task.status if task else None
                 was_calendar_included = task.calendar_included if task else False
@@ -1826,7 +1830,7 @@ def create_app(test_config=None):
         wb = Workbook()
         ws = wb.active
         ws.title = "업무등록"
-        headers = ["제목", "내용", "분류", "부서", "담당자 로그인ID", "착수일", "목표일", "상태", "진행률", "반복주기", "캘린더 등록(선택)"]
+        headers = ["제목", "내용", "분류", "부서(팀)", "담당자 로그인ID", "착수일", "목표일", "상태", "진행률", "반복주기", "캘린더 등록(선택)"]
         ws.append(headers)
         ws.append(["월간 비용 마감", "마감자료 취합", "루틴", current_user.department.name, current_user.login_id, date.today(), date.today() + timedelta(days=7), "진행중", 10, "월간", "Y"])
         ws.append(["월간 핵심 과제", "주요업무는 선택값과 관계없이 자동 등록", "주요", current_user.department.name, current_user.login_id, date.today(), date.today() + timedelta(days=14), "진행중", 0, "없음", "N"])
@@ -1851,7 +1855,10 @@ def create_app(test_config=None):
             ws = wb.active
             headers = [cell.value for cell in ws[1]]
             expected = ["제목", "내용", "분류", "부서", "담당자 로그인ID", "착수일", "목표일", "상태", "진행률", "반복주기"]
-            if headers[: len(expected)] != expected:
+            normalized_headers = [
+                "부서" if header == "부서(팀)" else header for header in headers[: len(expected)]
+            ]
+            if normalized_headers != expected:
                 raise ValueError("템플릿 헤더가 일치하지 않습니다.")
             calendar_column = headers.index("캘린더 등록(선택)") if "캘린더 등록(선택)" in headers else None
             created = 0
@@ -1866,15 +1873,15 @@ def create_app(test_config=None):
                 )
                 employee = db.session.scalar(select(Employee).where(Employee.login_id == str(row[4]).strip()))
                 if not department or not employee:
-                    raise ValueError(f"{created + 2}행의 부서 또는 담당자를 찾을 수 없습니다.")
+                    raise ValueError(f"{created + 2}행의 부서(팀) 또는 담당자를 찾을 수 없습니다.")
                 if (
                     employee.status != "재직"
                     or employee.approval_status != "승인완료"
                     or employee.department_id != department.id
                 ):
-                    raise ValueError(f"{created + 2}행의 담당자는 해당 부서의 재직자여야 합니다.")
+                    raise ValueError(f"{created + 2}행의 담당자는 해당 부서(팀)의 재직자여야 합니다.")
                 if not can_write_department(department.id):
-                    raise ValueError(f"{created + 2}행은 소속 부서 업무만 등록할 수 있습니다.")
+                    raise ValueError(f"{created + 2}행은 소속 부서(팀) 업무만 등록할 수 있습니다.")
                 start_date = row[5].date() if isinstance(row[5], datetime) else (row[5] if isinstance(row[5], date) else date.fromisoformat(str(row[5])))
                 target_date = row[6].date() if isinstance(row[6], datetime) else (row[6] if isinstance(row[6], date) else date.fromisoformat(str(row[6])))
                 task = Task(
@@ -2428,13 +2435,13 @@ def create_app(test_config=None):
             ):
                 raise ValueError("승인 완료된 재직 임직원만 일정 담당자로 지정할 수 있습니다.")
             if scope == "부서" and not department_id:
-                raise ValueError("부서 일정은 부서를 선택해야 합니다.")
+                raise ValueError("부서(팀) 일정은 부서(팀)를 선택해야 합니다.")
             if scope == "개인" and not assignee_id:
                 raise ValueError("개인 일정은 담당자를 선택해야 합니다.")
             if scope == "개인" and not department_id:
                 department_id = assignee.department_id
             if assignee and department_id and assignee.department_id != department_id:
-                raise ValueError("일정 담당자는 선택한 부서의 임직원이어야 합니다.")
+                raise ValueError("일정 담당자는 선택한 부서(팀)의 임직원이어야 합니다.")
             schedule = Schedule(
                 title=request.form["title"].strip(),
                 schedule_date=date.fromisoformat(request.form["schedule_date"]),
