@@ -256,6 +256,7 @@ class Task(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(250), nullable=False)
     content = db.Column(db.Text, nullable=True)
+    work_process = db.Column(db.Text, nullable=True)
     department_id = db.Column(db.Integer, db.ForeignKey("departments.id"), nullable=False, index=True)
     assignee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False, index=True)
     start_date = db.Column(db.Date, nullable=False)
@@ -1224,6 +1225,7 @@ def create_app(test_config=None):
                 target = task or Task(created_by_id=current_user.id)
                 target.title = request.form.get("title", "").strip()
                 target.content = request.form.get("content", "").strip()
+                target.work_process = request.form.get("work_process", "").strip() or None
                 target.department_id = department_id
                 target.assignee_id = assignee_id
                 target.start_date = date.fromisoformat(request.form["start_date"])
@@ -1266,6 +1268,7 @@ def create_app(test_config=None):
                         f"task:{target.id}",
                         {
                             "title": target.title,
+                            "work_process_updated": bool(target.work_process),
                             "calendar_selected": target.calendar_selected,
                             "calendar_registration": target.calendar_registration_label,
                         },
