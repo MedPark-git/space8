@@ -50,7 +50,7 @@
     <div class="meeting-form-meta"><label>작성일<input type="date" name="work_date" value="{{ request.form.get('work_date', today.isoformat()) }}" required></label><label>문서 제목<input type="text" name="title" maxlength="200" value="{{ request.form.get('title', '') }}" placeholder="미입력 시 날짜·작성자·문서구분으로 자동 생성"></label></div>
     {{ task_picker('major', major_tasks, request.form.getlist('task_ids') if request.method == 'POST' and form_type == 'major' else default_major_task_ids) }}
     {{ task_picker('daily', daily_tasks, request.form.getlist('task_ids') if request.method == 'POST' and form_type == 'daily' else default_daily_task_ids) }}
-    <div class="journal-privacy-note" data-journal-privacy-note><strong>일일업무 일지 열람 범위</strong><span>본인 · 같은 부서(팀)의 팀장 · 부서장만 열람할 수 있습니다.</span></div>
+    <div class="journal-privacy-note" data-journal-privacy-note><strong>일일업무 일지 열람 범위</strong><span>본인 · 같은 부서(팀)의 팀장 · 부서장만 열람할 수 있으며, 관리자는 전체 자료를 관리할 수 있습니다.</span></div>
     <div class="form-actions"><button class="button ghost" type="button" data-close>취소</button><button class="button primary" type="submit">저장하고 게시판에서 보기</button></div>
   </form></div>
 </dialog>

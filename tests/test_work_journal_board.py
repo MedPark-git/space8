@@ -225,7 +225,7 @@ class WorkJournalBoardTests(unittest.TestCase):
             0,
         )
 
-    def test_daily_journal_visibility_is_limited_to_author_team_leader_and_head(self):
+    def test_daily_journal_visibility_includes_administrator(self):
         journal = self.create_daily_document()
         access_expectations = {
             "author1": 200,
@@ -233,7 +233,7 @@ class WorkJournalBoardTests(unittest.TestCase):
             "lead1": 200,
             "financelead": 403,
             "head1": 200,
-            "admin1": 403,
+            "admin1": 200,
         }
         for login_id, expected_status in access_expectations.items():
             with self.subTest(login_id=login_id):
@@ -246,7 +246,7 @@ class WorkJournalBoardTests(unittest.TestCase):
                 else:
                     self.assertNotIn(journal.title.encode(), board.data)
 
-    def test_only_author_can_edit_daily_journal(self):
+    def test_only_author_and_administrator_can_edit_daily_journal(self):
         journal = self.create_daily_document()
         self.login("lead1")
         self.assertEqual(self.client.get(f"/journals/{journal.id}/edit").status_code, 403)
@@ -254,6 +254,22 @@ class WorkJournalBoardTests(unittest.TestCase):
         self.assertEqual(self.client.get(f"/journals/{journal.id}/edit").status_code, 403)
         self.login("author1")
         self.assertEqual(self.client.get(f"/journals/{journal.id}/edit").status_code, 200)
+        self.login("admin1")
+        self.assertEqual(self.client.get(f"/journals/{journal.id}/edit").status_code, 200)
+        response = self.client.post(
+            f"/journals/{journal.id}/edit",
+            data={
+                "work_date": "2026-09-04",
+                "title": "관리자 확인 일일업무 일지",
+                "task_ids": [str(self.general_task.id)],
+                "work_summary": "관리자가 전체 권한으로 확인",
+                "next_plan": "익일 점검",
+                "special_notes": "",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        db.session.refresh(journal)
+        self.assertEqual(journal.title, "관리자 확인 일일업무 일지")
 
     def test_task_daily_logs_use_the_same_private_visibility_rule(self):
         access_expectations = {
@@ -262,7 +278,7 @@ class WorkJournalBoardTests(unittest.TestCase):
             "lead1": True,
             "financelead": False,
             "head1": True,
-            "admin1": False,
+            "admin1": True,
         }
         for login_id, can_see in access_expectations.items():
             with self.subTest(login_id=login_id):

@@ -111,6 +111,7 @@ const initCadenceFiltering = () => {
 
       window.history.replaceState(null, "", targetUrl);
       initCadenceFiltering();
+      initWorkCategoryFilter();
       const results = document.querySelector("[data-task-results]");
       if (results) {
         initBulkJournal(results);
@@ -484,6 +485,112 @@ const initMeetingImageDownload = (root = document) => {
   });
 };
 
+const getWorkCategoryCatalog = () => {
+  const source = document.getElementById("work-category-catalog");
+  if (!source) return [];
+  try {
+    return JSON.parse(source.textContent || "[]");
+  } catch (_error) {
+    return [];
+  }
+};
+
+const replaceSelectOptions = (select, items, emptyLabel, selectedValue = "") => {
+  if (!select) return;
+  select.replaceChildren();
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = emptyLabel;
+  select.append(empty);
+  items.forEach(({ value, label }) => {
+    const option = document.createElement("option");
+    option.value = String(value);
+    option.textContent = label;
+    option.selected = String(value) === String(selectedValue);
+    select.append(option);
+  });
+};
+
+const initWorkCategoryForm = (root = document) => {
+  const catalog = getWorkCategoryCatalog();
+  root.querySelectorAll("[data-work-category-form]").forEach((formSection) => {
+    if (formSection.dataset.categoryBound) return;
+    formSection.dataset.categoryBound = "true";
+    const department = formSection.querySelector("[data-work-department]");
+    const middle = formSection.querySelector("[data-work-middle]");
+    const category = formSection.querySelector("[data-work-category]");
+    const initialCategoryId = formSection.dataset.selectedCategory || "";
+    const initialCategory = catalog.find((item) => String(item.id) === String(initialCategoryId));
+
+    const departmentCategories = () => catalog.filter(
+      (item) => String(item.department_id) === String(department?.value || "")
+    );
+    const rebuildSmall = (selectedId = "") => {
+      const items = departmentCategories()
+        .filter((item) => item.middle_name === middle?.value)
+        .map((item) => ({ value: item.id, label: item.small_name || "소분류 없음" }));
+      replaceSelectOptions(category, items, "미분류", selectedId);
+    };
+    const rebuildMiddle = (selectedMiddle = "", selectedId = "") => {
+      const names = [...new Set(departmentCategories().map((item) => item.middle_name))];
+      replaceSelectOptions(
+        middle,
+        names.map((name) => ({ value: name, label: name })),
+        "미분류",
+        selectedMiddle,
+      );
+      rebuildSmall(selectedId);
+    };
+
+    department?.addEventListener("change", () => rebuildMiddle());
+    middle?.addEventListener("change", () => rebuildSmall());
+    rebuildMiddle(initialCategory?.middle_name || "", initialCategoryId);
+  });
+};
+
+const initWorkCategoryFilter = (root = document) => {
+  const catalog = getWorkCategoryCatalog();
+  root.querySelectorAll("[data-work-category-filter]").forEach((filter) => {
+    if (filter.dataset.categoryBound) return;
+    filter.dataset.categoryBound = "true";
+    const department = filter.querySelector("[data-work-department]");
+    const middle = filter.querySelector("[data-work-middle]");
+    const small = filter.querySelector("[data-work-small]");
+    const initialMiddle = filter.dataset.selectedMiddle || "";
+    const initialSmall = filter.dataset.selectedSmall || "";
+    const matchingCategories = () => catalog.filter(
+      (item) => !department?.value || String(item.department_id) === String(department.value)
+    );
+    const rebuildSmall = (selectedSmall = "") => {
+      const names = [...new Set(
+        matchingCategories()
+          .filter((item) => !middle?.value || item.middle_name === middle.value)
+          .map((item) => item.small_name)
+          .filter(Boolean)
+      )];
+      replaceSelectOptions(
+        small,
+        names.map((name) => ({ value: name, label: name })),
+        "전체",
+        selectedSmall,
+      );
+    };
+    const rebuildMiddle = (selectedMiddle = "", selectedSmall = "") => {
+      const names = [...new Set(matchingCategories().map((item) => item.middle_name))];
+      replaceSelectOptions(
+        middle,
+        names.map((name) => ({ value: name, label: name })),
+        "전체",
+        selectedMiddle,
+      );
+      rebuildSmall(selectedSmall);
+    };
+    department?.addEventListener("change", () => rebuildMiddle());
+    middle?.addEventListener("change", () => rebuildSmall());
+    rebuildMiddle(initialMiddle, initialSmall);
+  });
+};
+
 document.addEventListener("DOMContentLoaded", () => {
   const nav = document.querySelector(".main-nav");
   document.querySelector(".nav-toggle")?.addEventListener("click", () => nav?.classList.toggle("open"));
@@ -501,6 +608,8 @@ document.addEventListener("DOMContentLoaded", () => {
   initJournalTaskPickers();
   initJournalCompose();
   initJournalBoard();
+  initWorkCategoryForm();
+  initWorkCategoryFilter();
 
   setTimeout(() => document.querySelectorAll(".flash").forEach((item) => item.remove()), 6000);
 });

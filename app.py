@@ -264,6 +264,40 @@ class Department(db.Model):
         return sum(task.deleted_at is None for task in self.tasks)
 
 
+class WorkCategory(db.Model):
+    __tablename__ = "work_categories"
+    id = db.Column(db.Integer, primary_key=True)
+    department_id = db.Column(
+        db.Integer,
+        db.ForeignKey("departments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    middle_name = db.Column(db.String(100), nullable=False)
+    small_name = db.Column(db.String(150), nullable=False, default="")
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    department = db.relationship(
+        "Department",
+        backref=db.backref("work_categories", cascade="all, delete-orphan"),
+    )
+    __table_args__ = (
+        UniqueConstraint(
+            "department_id",
+            "middle_name",
+            "small_name",
+            name="uq_work_category_path",
+        ),
+    )
+
+    @property
+    def path_label(self):
+        return " → ".join(
+            item for item in (self.department.name, self.middle_name, self.small_name) if item
+        )
+
+
 class Employee(UserMixin, db.Model):
     __tablename__ = "employees"
     id = db.Column(db.Integer, primary_key=True)
@@ -342,6 +376,12 @@ class Task(db.Model):
     content = db.Column(db.Text, nullable=True)
     work_process = db.Column(db.Text, nullable=True)
     department_id = db.Column(db.Integer, db.ForeignKey("departments.id"), nullable=False, index=True)
+    work_category_id = db.Column(
+        db.Integer,
+        db.ForeignKey("work_categories.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     assignee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False, index=True)
     start_date = db.Column(db.Date, nullable=False)
     target_date = db.Column(db.Date, nullable=False, index=True)
@@ -379,6 +419,7 @@ class Task(db.Model):
     deleted_at = db.Column(db.DateTime(timezone=True), nullable=True, index=True)
     deleted_by_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True)
     department = db.relationship("Department", backref="tasks")
+    work_category = db.relationship("WorkCategory", backref="tasks")
     assignee = db.relationship("Employee", foreign_keys=[assignee_id], backref="assigned_tasks")
     creator = db.relationship("Employee", foreign_keys=[created_by_id], backref="created_tasks")
     calendar_registered_by = db.relationship(
@@ -424,6 +465,30 @@ class Task(db.Model):
     @property
     def display_assignees(self):
         return self.source_assignees or self.assignee.name
+
+    @property
+    def middle_category_name(self):
+        if self.work_category:
+            return self.work_category.middle_name
+        return self.source_category or None
+
+    @property
+    def small_category_name(self):
+        if self.work_category:
+            return self.work_category.small_name or None
+        return self.source_detail or None
+
+    @property
+    def work_category_path(self):
+        return " → ".join(
+            item
+            for item in (
+                self.department.name,
+                self.middle_category_name,
+                self.small_category_name,
+            )
+            if item
+        )
 
     @property
     def cadence_key(self):
@@ -716,8 +781,67 @@ def admin_required(permission):
     return decorator
 
 
+def is_administrator(user):
+    return bool(user and user.is_authenticated and user.role.name == "관리자")
+
+
+def active_work_categories(department_ids=None):
+    query = select(WorkCategory).where(WorkCategory.active.is_(True))
+    if department_ids is not None:
+        query = query.where(WorkCategory.department_id.in_(list(department_ids)))
+    return db.session.scalars(
+        query.order_by(
+            WorkCategory.department_id,
+            WorkCategory.sort_order,
+            WorkCategory.middle_name,
+            WorkCategory.small_name,
+        )
+    ).all()
+
+
+def build_work_category_catalog(categories):
+    return [
+        {
+            "id": category.id,
+            "department_id": category.department_id,
+            "department_name": category.department.name,
+            "middle_name": category.middle_name,
+            "small_name": category.small_name,
+        }
+        for category in categories
+    ]
+
+
+def get_or_create_work_category(department_id, middle_name, small_name=""):
+    middle_name = str(middle_name or "").strip()
+    small_name = str(small_name or "").strip()
+    if not middle_name:
+        return None
+    category = db.session.scalar(
+        select(WorkCategory).where(
+            WorkCategory.department_id == department_id,
+            WorkCategory.middle_name == middle_name,
+            WorkCategory.small_name == small_name,
+        )
+    )
+    if category:
+        category.active = True
+        return category
+    category = WorkCategory(
+        department_id=department_id,
+        middle_name=middle_name,
+        small_name=small_name,
+        active=True,
+    )
+    db.session.add(category)
+    db.session.flush()
+    return category
+
+
 def visible_task_query(user):
     query = select(Task).where(Task.deleted_at.is_(None))
+    if is_administrator(user):
+        return query
     scope = user.role.data_scope
     if scope == "all":
         return query
@@ -730,7 +854,8 @@ def can_view_task_detail(task):
     if task.deleted_at is not None:
         return False
     return (
-        current_user.role.data_scope == "all"
+        is_administrator(current_user)
+        or current_user.role.data_scope == "all"
         or task.department_id == current_user.department_id
         or task.assignee_id == current_user.id
         or task.created_by_id == current_user.id
@@ -782,6 +907,8 @@ def can_write_department(department_id):
 
 
 def can_view_daily_journal_author(author_id, department_id):
+    if is_administrator(current_user):
+        return True
     if current_user.id == author_id:
         return True
     if current_user.role.name == "부서장":
@@ -796,14 +923,15 @@ def can_view_work_journal(journal):
     if journal.document_type == "daily":
         return can_view_daily_journal_author(journal.author_id, journal.department_id)
     return (
-        current_user.role.data_scope == "all"
+        is_administrator(current_user)
+        or current_user.role.data_scope == "all"
         or current_user.id == journal.author_id
         or current_user.department_id == journal.department_id
     )
 
 
 def can_edit_work_journal(journal):
-    return current_user.id == journal.author_id
+    return is_administrator(current_user) or current_user.id == journal.author_id
 
 
 def journal_candidate_tasks(user, document_type):
@@ -868,6 +996,7 @@ def can_edit_meeting(meeting):
     if (
         meeting.author_id == current_user.id
         or meeting.created_by_id == current_user.id
+        or is_administrator(current_user)
         or current_user.role.data_scope == "all"
     ):
         return True
@@ -878,7 +1007,11 @@ def can_edit_meeting(meeting):
 
 
 def can_view_meeting(meeting):
-    if current_user.role.data_scope == "all" or meeting.department_id == current_user.department_id:
+    if (
+        is_administrator(current_user)
+        or current_user.role.data_scope == "all"
+        or meeting.department_id == current_user.department_id
+    ):
         return True
     participant_ids = {
         meeting.author_id,
@@ -1271,6 +1404,7 @@ def generate_due_recurring_tasks(as_of_date=None):
                     content=root.content,
                     work_process=root.work_process,
                     department_id=root.department_id,
+                    work_category_id=root.work_category_id,
                     assignee_id=root.assignee_id,
                     start_date=next_start_date,
                     target_date=max(next_start_date, next_target_date),
@@ -1394,7 +1528,17 @@ def import_security_it_tasks():
     )
     created_count = 0
     for item in payload["tasks"]:
+        work_category = get_or_create_work_category(
+            department.id,
+            item["category"],
+            item["detail"],
+        )
         if item["source_ref"] in existing_refs:
+            existing_task = db.session.scalar(
+                select(Task).where(Task.source_ref == item["source_ref"])
+            )
+            if existing_task and existing_task.work_category_id is None:
+                existing_task.work_category_id = work_category.id
             continue
         frequency = item["frequency"]
         title_detail = item["detail"] or item["content"]
@@ -1402,6 +1546,7 @@ def import_security_it_tasks():
             title=f'{item["category"]} · {title_detail}'[:250],
             content=item["content"],
             department_id=department.id,
+            work_category_id=work_category.id,
             assignee_id=admin_user.id,
             start_date=date(2026, 9, 2),
             target_date=target_dates.get(frequency, date(2026, 12, 31)),
@@ -1953,7 +2098,7 @@ def create_app(test_config=None):
         tasks = db.session.scalars(visible_task_query(current_user).order_by(Task.target_date, Task.id)).all()
 
         departments_query = select(Department).where(Department.active.is_(True))
-        if current_user.role.data_scope != "all":
+        if not is_administrator(current_user) and current_user.role.data_scope != "all":
             departments_query = departments_query.where(Department.id == current_user.department_id)
         visible_departments = db.session.scalars(departments_query).all()
         dashboard_department_order = {
@@ -1984,6 +2129,8 @@ def create_app(test_config=None):
         assignee_id = request.args.get("assignee_id", type=int)
         status = request.args.get("status", "")
         task_type = request.args.get("task_type", "")
+        middle_category = request.args.get("middle_category", "").strip()
+        small_category = request.args.get("small_category", "").strip()
         cadence = request.args.get("cadence", "")
         start = request.args.get("start", "")
         end = request.args.get("end", "")
@@ -1996,6 +2143,12 @@ def create_app(test_config=None):
                     Task.source_detail.ilike(f"%{keyword}%"),
                     Task.source_assignees.ilike(f"%{keyword}%"),
                     Task.source_frequency.ilike(f"%{keyword}%"),
+                    Task.work_category.has(
+                        or_(
+                            WorkCategory.middle_name.ilike(f"%{keyword}%"),
+                            WorkCategory.small_name.ilike(f"%{keyword}%"),
+                        )
+                    ),
                 )
             )
         if department_id:
@@ -2006,6 +2159,20 @@ def create_app(test_config=None):
             query = query.where(Task.status == status)
         if task_type in TASK_TYPES:
             query = query.join(TaskClassification).where(TaskClassification.name == task_type)
+        if middle_category:
+            query = query.where(
+                or_(
+                    Task.work_category.has(WorkCategory.middle_name == middle_category),
+                    and_(Task.work_category_id.is_(None), Task.source_category == middle_category),
+                )
+            )
+        if small_category:
+            query = query.where(
+                or_(
+                    Task.work_category.has(WorkCategory.small_name == small_category),
+                    and_(Task.work_category_id.is_(None), Task.source_detail == small_category),
+                )
+            )
         if start:
             query = query.where(Task.target_date >= date.fromisoformat(start))
         if end:
@@ -2020,7 +2187,7 @@ def create_app(test_config=None):
         employees_query = select(Employee).where(
             Employee.status == "재직", Employee.approval_status == "승인완료"
         )
-        if current_user.role.data_scope != "all":
+        if not is_administrator(current_user) and current_user.role.data_scope != "all":
             departments_query = departments_query.where(Department.id == current_user.department_id)
             employees_query = employees_query.where(Employee.department_id == current_user.department_id)
         departments = db.session.scalars(departments_query.order_by(Department.name)).all()
@@ -2030,6 +2197,7 @@ def create_app(test_config=None):
                 department.name,
             )
         )
+        work_categories = active_work_categories(department.id for department in departments)
         all_visible_tasks = db.session.scalars(
             visible_task_query(current_user).order_by(Task.target_date, Task.id)
         ).all()
@@ -2051,6 +2219,7 @@ def create_app(test_config=None):
             pagination=pagination,
             departments=departments,
             employees=db.session.scalars(employees_query.order_by(Employee.name)).all(),
+            work_category_catalog=build_work_category_catalog(work_categories),
             department_summaries=build_department_summaries(departments, all_visible_tasks),
             cadence_summaries=build_cadence_summaries(cadence_tasks),
             cadence_total=len(cadence_tasks),
@@ -2061,7 +2230,7 @@ def create_app(test_config=None):
             calendar_removable_ids=calendar_removable_ids,
             deletable_task_ids=deletable_task_ids,
             selectable_task_ids=selectable_task_ids,
-            can_view_all_tasks=current_user.role.data_scope == "all",
+            can_view_all_tasks=is_administrator(current_user) or current_user.role.data_scope == "all",
         )
 
     @app.route("/tasks/new", methods=["GET", "POST"])
@@ -2285,6 +2454,9 @@ def create_app(test_config=None):
             employees_query = employees_query.where(Employee.department_id == current_user.department_id)
         departments = db.session.scalars(departments_query.order_by(Department.name)).all()
         employees = db.session.scalars(employees_query.order_by(Employee.name)).all()
+        work_categories = active_work_categories(department.id for department in departments)
+        if task and task.work_category and task.work_category not in work_categories:
+            work_categories.append(task.work_category)
         if request.method == "POST":
             types = [name for name in request.form.getlist("task_types") if name in TASK_TYPES]
             if not types:
@@ -2294,6 +2466,12 @@ def create_app(test_config=None):
                 assignee_id = int(request.form["assignee_id"])
                 department = db.session.get(Department, department_id)
                 assignee = db.session.get(Employee, assignee_id)
+                work_category_id = request.form.get("work_category_id", type=int)
+                work_category = (
+                    db.session.get(WorkCategory, work_category_id)
+                    if work_category_id
+                    else None
+                )
                 if (
                     not department
                     or not department.active
@@ -2304,9 +2482,33 @@ def create_app(test_config=None):
                     abort(400)
                 if not can_write_department(department_id):
                     abort(403)
+                if work_category_id and (
+                    not work_category
+                    or (
+                        not work_category.active
+                        and (not task or task.work_category_id != work_category.id)
+                    )
+                    or work_category.department_id != department_id
+                ):
+                    flash("중분류와 소분류는 선택한 부서(팀)의 기초자료에서 선택해 주세요.", "danger")
+                    return render_template(
+                        "tasks.html",
+                        mode="form",
+                        task=task,
+                        departments=departments,
+                        employees=employees,
+                        work_category_catalog=build_work_category_catalog(work_categories),
+                    )
                 if assignee.department_id != department_id:
                     flash("담당자는 업무 부서(팀)에 소속된 임직원만 지정할 수 있습니다.", "danger")
-                    return render_template("tasks.html", mode="form", task=task, departments=departments, employees=employees)
+                    return render_template(
+                        "tasks.html",
+                        mode="form",
+                        task=task,
+                        departments=departments,
+                        employees=employees,
+                        work_category_catalog=build_work_category_catalog(work_categories),
+                    )
                 old_status = task.status if task else None
                 was_calendar_included = task.calendar_included if task else False
                 target = task or Task(created_by_id=current_user.id)
@@ -2314,6 +2516,7 @@ def create_app(test_config=None):
                 target.content = request.form.get("content", "").strip()
                 target.work_process = request.form.get("work_process", "").strip() or None
                 target.department_id = department_id
+                target.work_category_id = work_category.id if work_category else None
                 target.assignee_id = assignee_id
                 target.start_date = date.fromisoformat(request.form["start_date"])
                 target.target_date = date.fromisoformat(request.form["target_date"])
@@ -2373,6 +2576,8 @@ def create_app(test_config=None):
                         f"task:{target.id}",
                         {
                             "title": target.title,
+                            "work_category_id": target.work_category_id,
+                            "work_category_path": target.work_category_path,
                             "work_process_updated": bool(target.work_process),
                             "work_process_synchronized_task_ids": synchronized_task_ids,
                             "calendar_selected": target.calendar_selected,
@@ -2391,7 +2596,14 @@ def create_app(test_config=None):
                     else:
                         flash("업무가 저장되었습니다.", "success")
                     return redirect(url_for("task_detail", task_id=target.id))
-        return render_template("tasks.html", mode="form", task=task, departments=departments, employees=employees)
+        return render_template(
+            "tasks.html",
+            mode="form",
+            task=task,
+            departments=departments,
+            employees=employees,
+            work_category_catalog=build_work_category_catalog(work_categories),
+        )
 
     @app.route("/tasks/<int:task_id>", methods=["GET", "POST"])
     @login_required
@@ -2434,10 +2646,38 @@ def create_app(test_config=None):
         wb = Workbook()
         ws = wb.active
         ws.title = "업무등록"
-        headers = ["제목", "내용", "분류", "부서(팀)", "담당자 로그인ID", "착수일", "목표일", "상태", "진행률", "반복주기", "캘린더 등록(선택)"]
+        sample_category = db.session.scalar(
+            select(WorkCategory)
+            .where(
+                WorkCategory.department_id == current_user.department_id,
+                WorkCategory.active.is_(True),
+            )
+            .order_by(
+                WorkCategory.sort_order,
+                WorkCategory.middle_name,
+                WorkCategory.small_name,
+            )
+        )
+        headers = [
+            "제목",
+            "내용",
+            "분류",
+            "부서(팀)",
+            "중분류",
+            "소분류",
+            "담당자 로그인ID",
+            "착수일",
+            "목표일",
+            "상태",
+            "진행률",
+            "반복주기",
+            "캘린더 등록(선택)",
+        ]
         ws.append(headers)
-        ws.append(["월간 비용 마감", "마감자료 취합", "루틴", current_user.department.name, current_user.login_id, date.today(), date.today() + timedelta(days=7), "진행중", 10, "월간", "Y"])
-        ws.append(["월간 핵심 과제", "주요업무는 선택값과 관계없이 자동 등록", "주요", current_user.department.name, current_user.login_id, date.today(), date.today() + timedelta(days=14), "진행중", 0, "없음", "N"])
+        sample_middle = sample_category.middle_name if sample_category else ""
+        sample_small = sample_category.small_name if sample_category else ""
+        ws.append(["월간 비용 마감", "마감자료 취합", "루틴", current_user.department.name, sample_middle, sample_small, current_user.login_id, date.today(), date.today() + timedelta(days=7), "진행중", 10, "월간", "Y"])
+        ws.append(["월간 핵심 과제", "주요업무는 선택값과 관계없이 자동 등록", "주요", current_user.department.name, sample_middle, sample_small, current_user.login_id, date.today(), date.today() + timedelta(days=14), "진행중", 0, "없음", "N"])
         ws.freeze_panes = "A2"
         for column in ws.columns:
             ws.column_dimensions[column[0].column_letter].width = max(len(str(cell.value or "")) for cell in column) + 3
@@ -2457,25 +2697,46 @@ def create_app(test_config=None):
         try:
             wb = load_workbook(io.BytesIO(raw), data_only=True)
             ws = wb.active
-            headers = [cell.value for cell in ws[1]]
-            expected = ["제목", "내용", "분류", "부서", "담당자 로그인ID", "착수일", "목표일", "상태", "진행률", "반복주기"]
-            normalized_headers = [
-                "부서" if header == "부서(팀)" else header for header in headers[: len(expected)]
+            headers = [str(cell.value or "").strip() for cell in ws[1]]
+            header_indexes = {header: index for index, header in enumerate(headers) if header}
+            if "부서(팀)" in header_indexes and "부서" not in header_indexes:
+                header_indexes["부서"] = header_indexes["부서(팀)"]
+            required_headers = [
+                "제목",
+                "내용",
+                "분류",
+                "부서",
+                "담당자 로그인ID",
+                "착수일",
+                "목표일",
+                "상태",
+                "진행률",
+                "반복주기",
             ]
-            if normalized_headers != expected:
+            if any(header not in header_indexes for header in required_headers):
                 raise ValueError("템플릿 헤더가 일치하지 않습니다.")
-            calendar_column = headers.index("캘린더 등록(선택)") if "캘린더 등록(선택)" in headers else None
+
+            def row_value(row, header, default=None):
+                column = header_indexes.get(header)
+                if column is None or column >= len(row):
+                    return default
+                return row[column]
+
             created = 0
             for row in ws.iter_rows(min_row=2, values_only=True):
-                if not row[0]:
+                if not row_value(row, "제목"):
                     continue
                 department = db.session.scalar(
                     select(Department).where(
-                        Department.name == str(row[3]).strip(),
+                        Department.name == str(row_value(row, "부서")).strip(),
                         Department.active.is_(True),
                     )
                 )
-                employee = db.session.scalar(select(Employee).where(Employee.login_id == str(row[4]).strip()))
+                employee = db.session.scalar(
+                    select(Employee).where(
+                        Employee.login_id == str(row_value(row, "담당자 로그인ID")).strip()
+                    )
+                )
                 if not department or not employee:
                     raise ValueError(f"{created + 2}행의 부서(팀) 또는 담당자를 찾을 수 없습니다.")
                 if (
@@ -2486,27 +2747,45 @@ def create_app(test_config=None):
                     raise ValueError(f"{created + 2}행의 담당자는 해당 부서(팀)의 재직자여야 합니다.")
                 if not can_write_department(department.id):
                     raise ValueError(f"{created + 2}행은 소속 부서(팀) 업무만 등록할 수 있습니다.")
-                start_date = row[5].date() if isinstance(row[5], datetime) else (row[5] if isinstance(row[5], date) else date.fromisoformat(str(row[5])))
-                target_date = row[6].date() if isinstance(row[6], datetime) else (row[6] if isinstance(row[6], date) else date.fromisoformat(str(row[6])))
+                middle_name = str(row_value(row, "중분류", "") or "").strip()
+                small_name = str(row_value(row, "소분류", "") or "").strip()
+                work_category = None
+                if middle_name:
+                    work_category = db.session.scalar(
+                        select(WorkCategory).where(
+                            WorkCategory.department_id == department.id,
+                            WorkCategory.middle_name == middle_name,
+                            WorkCategory.small_name == small_name,
+                            WorkCategory.active.is_(True),
+                        )
+                    )
+                    if not work_category:
+                        raise ValueError(
+                            f"{created + 2}행의 중분류·소분류가 기초자료에 없습니다. "
+                            "관리자 업무구분에서 먼저 등록해 주세요."
+                        )
+                raw_start_date = row_value(row, "착수일")
+                raw_target_date = row_value(row, "목표일")
+                start_date = raw_start_date.date() if isinstance(raw_start_date, datetime) else (raw_start_date if isinstance(raw_start_date, date) else date.fromisoformat(str(raw_start_date)))
+                target_date = raw_target_date.date() if isinstance(raw_target_date, datetime) else (raw_target_date if isinstance(raw_target_date, date) else date.fromisoformat(str(raw_target_date)))
                 task = Task(
-                    title=str(row[0]).strip(),
-                    content=str(row[1] or "").strip(),
+                    title=str(row_value(row, "제목")).strip(),
+                    content=str(row_value(row, "내용", "") or "").strip(),
                     department=department,
+                    work_category=work_category,
                     assignee=employee,
                     start_date=start_date,
                     target_date=target_date,
-                    status=str(row[7] or "진행중") if str(row[7] or "진행중") in TASK_STATUSES else "진행중",
-                    progress=min(max(int(row[8] or 0), 0), 100),
-                    repeat_cycle=str(row[9] or "없음") if str(row[9] or "없음") in REPEAT_CYCLES else "없음",
+                    status=str(row_value(row, "상태", "진행중") or "진행중") if str(row_value(row, "상태", "진행중") or "진행중") in TASK_STATUSES else "진행중",
+                    progress=min(max(int(row_value(row, "진행률", 0) or 0), 0), 100),
+                    repeat_cycle=str(row_value(row, "반복주기", "없음") or "없음") if str(row_value(row, "반복주기", "없음") or "없음") in REPEAT_CYCLES else "없음",
                     calendar_selected=(
-                        str(row[calendar_column] or "").strip().lower()
+                        str(row_value(row, "캘린더 등록(선택)", "") or "").strip().lower()
                         in {"y", "yes", "1", "true", "예", "등록", "표시", "o", "○"}
-                        if calendar_column is not None and calendar_column < len(row)
-                        else False
                     ),
                     created_by_id=current_user.id,
                 )
-                uploaded_types = [item.strip() for item in str(row[2]).split("|")]
+                uploaded_types = [item.strip() for item in str(row_value(row, "분류")).split("|")]
                 type_aliases = {"대표이사수명": "대표이사님 수명업무", "개인": "일반"}
                 types = list(
                     dict.fromkeys(
@@ -3049,7 +3328,7 @@ def create_app(test_config=None):
         journal = db.get_or_404(WorkJournalDocument, journal_id)
         if not can_edit_work_journal(journal):
             abort(403)
-        candidate_tasks = journal_candidate_tasks(current_user, journal.document_type)
+        candidate_tasks = journal_candidate_tasks(journal.author, journal.document_type)
         candidate_by_id = {task.id: task for task in candidate_tasks}
         if request.method == "POST":
             try:
@@ -3069,7 +3348,7 @@ def create_app(test_config=None):
                         WorkJournalDocument.id != journal.id,
                         WorkJournalDocument.work_date == work_date,
                         WorkJournalDocument.document_type == journal.document_type,
-                        WorkJournalDocument.author_id == current_user.id,
+                        WorkJournalDocument.author_id == journal.author_id,
                     )
                 )
                 if duplicate:
@@ -3086,7 +3365,7 @@ def create_app(test_config=None):
                 flash(str(exc), "danger")
             else:
                 journal.work_date = work_date
-                journal.title = title or f"{work_date.isoformat()} {current_user.name} {journal.document_label}"
+                journal.title = title or f"{work_date.isoformat()} {journal.author.name} {journal.document_label}"
                 journal.work_summary = work_summary or None
                 journal.next_plan = next_plan or None
                 journal.special_notes = special_notes or None
@@ -3172,7 +3451,16 @@ def create_app(test_config=None):
     @app.route("/admin/<section>", methods=["GET", "POST"])
     @admin_required("admin")
     def admin(section):
-        allowed = {"employees", "roles", "menus", "boards", "schedules", "departments", "audits"}
+        allowed = {
+            "employees",
+            "roles",
+            "menus",
+            "boards",
+            "schedules",
+            "departments",
+            "work-categories",
+            "audits",
+        }
         if section not in allowed:
             abort(404)
         if request.method == "POST":
@@ -3434,6 +3722,38 @@ def create_app(test_config=None):
             db.session.add(department)
             db.session.flush()
             audit("DEPARTMENT_CREATE", f"department:{department.id}")
+        elif section == "work-categories":
+            if action == "toggle":
+                category = db.get_or_404(
+                    WorkCategory,
+                    int(request.form["work_category_id"]),
+                )
+                category.active = not category.active
+                audit(
+                    "WORK_CATEGORY_TOGGLE",
+                    f"work-category:{category.id}",
+                    {"active": category.active, "path": category.path_label},
+                )
+                return f"업무구분을 {'사용' if category.active else '미사용'} 상태로 변경했습니다."
+            department_id = request.form.get("department_id", type=int)
+            department = db.session.get(Department, department_id) if department_id else None
+            if not department or not department.active:
+                raise ValueError("사용 중인 부서(팀)를 선택해 주세요.")
+            middle_name = request.form.get("middle_name", "").strip()
+            small_name = request.form.get("small_name", "").strip()
+            if not middle_name:
+                raise ValueError("중분류를 입력해 주세요.")
+            category = get_or_create_work_category(
+                department.id,
+                middle_name,
+                small_name,
+            )
+            audit(
+                "WORK_CATEGORY_CREATE",
+                f"work-category:{category.id}",
+                {"path": category.path_label},
+            )
+            return "업무구분 기초자료를 저장했습니다."
 
     def load_admin_data(section):
         common = {
@@ -3474,6 +3794,15 @@ def create_app(test_config=None):
                 .where(Schedule.deleted_at.is_(None))
                 .order_by(Schedule.schedule_date.desc())
                 .limit(100)
+            ).all()
+        elif section == "work-categories":
+            common["work_categories"] = db.session.scalars(
+                select(WorkCategory).order_by(
+                    WorkCategory.department_id,
+                    WorkCategory.sort_order,
+                    WorkCategory.middle_name,
+                    WorkCategory.small_name,
+                )
             ).all()
         elif section == "audits":
             common["audits"] = db.session.scalars(select(AuditLog).order_by(AuditLog.created_at.desc()).limit(200)).all()

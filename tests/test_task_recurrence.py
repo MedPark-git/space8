@@ -19,6 +19,7 @@ from app import (  # noqa: E402
     Role,
     Task,
     TaskClassification,
+    WorkCategory,
     advance_recurrence_date,
     create_app,
     db,
@@ -171,6 +172,14 @@ class TaskRecurrenceTests(unittest.TestCase):
         self.assertEqual(generate_due_recurring_tasks(date(2026, 9, 4)), [])
 
     def test_generated_task_inherits_operational_fields_without_duplication_source_ref(self):
+        work_category = WorkCategory(
+            department=self.department,
+            middle_name="보안업무",
+            small_name="주간 점검",
+            active=True,
+        )
+        db.session.add(work_category)
+        db.session.flush()
         root = self.create_root(
             "원본 주간 점검",
             "주간",
@@ -184,6 +193,7 @@ class TaskRecurrenceTests(unittest.TestCase):
             source_content="반복 업무 내용",
             source_assignees="관리자",
             source_frequency="주1회",
+            work_category_id=work_category.id,
         )
         db.session.commit()
 
@@ -192,6 +202,7 @@ class TaskRecurrenceTests(unittest.TestCase):
         self.assertEqual(occurrence.recurrence_root_id, root.id)
         self.assertEqual(occurrence.content, root.content)
         self.assertEqual(occurrence.work_process, root.work_process)
+        self.assertEqual(occurrence.work_category_id, work_category.id)
         self.assertTrue(occurrence.calendar_selected)
         self.assertTrue(occurrence.calendar_included)
         self.assertIsNone(occurrence.source_ref)
