@@ -166,6 +166,35 @@ const initMeetingDocumentForms = (root = document) => {
   });
 };
 
+const initMeetingTaskFilters = (root = document) => {
+  root.querySelectorAll("[data-meeting-task-filter]").forEach((filters) => {
+    if (filters.dataset.taskFilterBound) return;
+    filters.dataset.taskFilterBound = "true";
+    const form = filters.closest("form");
+    const list = form?.querySelector("[data-meeting-task-list]");
+    const rows = [...(list?.querySelectorAll("[data-meeting-task-row]") || [])];
+    const empty = list?.querySelector("[data-task-filter-empty]");
+    const search = filters.querySelector("[data-task-search]");
+    const department = filters.querySelector("[data-task-department]");
+    const status = filters.querySelector("[data-task-status]");
+    const update = () => {
+      const keyword = (search?.value || "").trim().toLocaleLowerCase("ko");
+      let visibleCount = 0;
+      rows.forEach((row) => {
+        const matches = (!keyword || (row.dataset.searchText || "").toLocaleLowerCase("ko").includes(keyword))
+          && (!department?.value || row.dataset.department === department.value)
+          && (!status?.value || row.dataset.status === status.value);
+        row.hidden = !matches;
+        if (matches) visibleCount += 1;
+      });
+      if (empty) empty.hidden = visibleCount > 0;
+    };
+    search?.addEventListener("input", update);
+    department?.addEventListener("change", update);
+    status?.addEventListener("change", update);
+  });
+};
+
 const copyComputedStyles = (source, clone) => {
   const sourceNodes = [source, ...source.querySelectorAll("*")];
   const cloneNodes = [clone, ...clone.querySelectorAll("*")];
@@ -234,7 +263,7 @@ const initMeetingImageDownload = (root = document) => {
       try {
         await downloadElementAsPng(button);
       } catch (_error) {
-        window.alert("이미지를 저장하지 못했습니다. 인쇄 기능에서 PDF 저장을 이용해 주세요.");
+        window.alert("이미지를 저장하지 못했습니다. A4 인쇄에서 PDF 저장을 이용해 주세요.");
       } finally {
         button.disabled = false;
         button.textContent = originalLabel;
@@ -251,6 +280,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initCadenceFiltering();
   initEmployeeSearch();
   initMeetingDocumentForms();
+  initMeetingTaskFilters();
   initMeetingImageDownload();
 
   setTimeout(() => document.querySelectorAll(".flash").forEach((item) => item.remove()), 6000);

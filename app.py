@@ -4,9 +4,11 @@ import io
 import json
 import os
 import re
+import zipfile
 from datetime import date, datetime, timedelta, timezone
 from functools import wraps
 from urllib.parse import quote_plus, urlparse
+from xml.sax.saxutils import escape as xml_escape
 
 from flask import (
     Flask,
@@ -89,6 +91,10 @@ REGISTRATION_PASSWORD_MIN_LENGTH = PASSWORD_MIN_LENGTH
 MEETING_DOCUMENT_TYPES = {
     "agenda": "일일 회의 아젠다",
     "minutes": "일일 회의 회의록",
+}
+MEETING_TEMPLATE_FILES = {
+    "agenda": "daily_meeting_agenda.xlsx",
+    "minutes": "daily_meeting_minutes.xlsx",
 }
 
 
@@ -191,6 +197,22 @@ daily_meeting_item = db.Table(
     "daily_meeting_items",
     db.Column("meeting_id", db.Integer, db.ForeignKey("daily_meetings.id", ondelete="CASCADE"), primary_key=True),
     db.Column("task_id", db.Integer, db.ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True),
+)
+
+daily_meeting_attendee = db.Table(
+    "daily_meeting_attendees",
+    db.Column(
+        "meeting_id",
+        db.Integer,
+        db.ForeignKey("daily_meetings.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    db.Column(
+        "employee_id",
+        db.Integer,
+        db.ForeignKey("employees.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
 )
 
 
@@ -564,11 +586,18 @@ class DailyMeeting(db.Model):
     discussion_notes = db.Column(db.Text, nullable=True)
     decisions = db.Column(db.Text, nullable=True)
     action_items = db.Column(db.Text, nullable=True)
+    special_notes = db.Column(db.Text, nullable=True)
+    duration_minutes = db.Column(db.Integer, nullable=True)
     author_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
+    reporter_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True)
+    created_by_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True)
     department_id = db.Column(db.Integer, db.ForeignKey("departments.id"), nullable=False)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
-    author = db.relationship("Employee")
+    author = db.relationship("Employee", foreign_keys=[author_id])
+    reporter = db.relationship("Employee", foreign_keys=[reporter_id])
+    creator = db.relationship("Employee", foreign_keys=[created_by_id])
+    attendees = db.relationship("Employee", secondary=daily_meeting_attendee)
     department = db.relationship("Department")
     tasks = db.relationship("Task", secondary=daily_meeting_item)
 
@@ -700,12 +729,225 @@ def can_write_department(department_id):
 
 
 def can_edit_meeting(meeting):
-    if meeting.author_id == current_user.id or current_user.role.data_scope == "all":
+    if (
+        meeting.author_id == current_user.id
+        or meeting.created_by_id == current_user.id
+        or current_user.role.data_scope == "all"
+    ):
         return True
     return (
         current_user.role.data_scope == "department"
         and meeting.department_id == current_user.department_id
     )
+
+
+def can_view_meeting(meeting):
+    if current_user.role.data_scope == "all" or meeting.department_id == current_user.department_id:
+        return True
+    participant_ids = {
+        meeting.author_id,
+        meeting.reporter_id,
+        meeting.created_by_id,
+        *(employee.id for employee in meeting.attendees),
+    }
+    return current_user.id in participant_ids
+
+
+def eligible_meeting_staff():
+    employees = db.session.scalars(
+        select(Employee)
+        .join(Department, Employee.department_id == Department.id)
+        .where(
+            Employee.status == "재직",
+            Employee.approval_status == "승인완료",
+            Department.active.is_(True),
+            Department.name.in_(EMPLOYEE_DEPARTMENTS),
+        )
+    ).all()
+    department_order = {name: index for index, name in enumerate(EMPLOYEE_DEPARTMENTS)}
+    return sorted(
+        employees,
+        key=lambda employee: (
+            department_order.get(employee.department.name, len(department_order)),
+            employee.position or "",
+            employee.name,
+            employee.id,
+        ),
+    )
+
+
+def parse_meeting_participants(staff):
+    staff_by_id = {employee.id: employee for employee in staff}
+    author_id = request.form.get("author_id", type=int)
+    reporter_id = request.form.get("reporter_id", type=int)
+    attendee_ids = {
+        int(value)
+        for value in request.form.getlist("attendee_ids")
+        if value.isdigit()
+    }
+    if author_id not in staff_by_id:
+        raise ValueError("작성자를 경영사업본부 재직 임직원 중에서 선택해 주세요.")
+    if reporter_id not in staff_by_id:
+        raise ValueError("보고자를 경영사업본부 재직 임직원 중에서 선택해 주세요.")
+    if not attendee_ids:
+        raise ValueError("참석자를 한 명 이상 선택해 주세요.")
+    if attendee_ids - staff_by_id.keys():
+        raise ValueError("참석자는 경영사업본부 재직 임직원만 선택할 수 있습니다.")
+    return (
+        staff_by_id[author_id],
+        staff_by_id[reporter_id],
+        [staff_by_id[employee_id] for employee_id in sorted(attendee_ids)],
+    )
+
+
+def meeting_candidate_tasks(user, selected_task_ids=None):
+    return db.session.scalars(
+        visible_task_query(user).order_by(Task.department_id, Task.target_date, Task.id)
+    ).all()
+
+
+def employee_meeting_label(employee, include_department=False):
+    if not employee:
+        return "-"
+    name_and_position = " ".join(value for value in (employee.name, employee.position) if value)
+    if include_department:
+        return f"{employee.department.name} / {name_and_position}"
+    return name_and_position
+
+
+def fold_meeting_lines(lines, limit):
+    values = [str(line).strip() for line in lines if str(line).strip()]
+    if len(values) <= limit:
+        return values + [""] * (limit - len(values))
+    return values[: limit - 1] + [" / ".join(values[limit - 1 :])]
+
+
+def meeting_agenda_lines(meeting):
+    grouped = {}
+    for task in sorted(meeting.tasks, key=lambda item: (item.department.name, item.target_date, item.id)):
+        grouped.setdefault(task.department.name, []).append(task.title)
+    lines = [f"[{department}] {' / '.join(titles)}" for department, titles in grouped.items()]
+    lines.extend((meeting.agenda_content or "").splitlines())
+    return fold_meeting_lines(lines, 4)
+
+
+def meeting_conclusion_lines(meeting):
+    lines = (meeting.decisions or "").splitlines()
+    lines.extend((meeting.action_items or "").splitlines())
+    return fold_meeting_lines(lines, 5)
+
+
+def meeting_detail_text(meeting):
+    sections = []
+    if meeting.tasks:
+        task_lines = []
+        for index, task in enumerate(
+            sorted(meeting.tasks, key=lambda item: (item.department.name, item.target_date, item.id)),
+            start=1,
+        ):
+            task_lines.append(
+                f"{index}. [{task.department.name}] {task.title}\n"
+                f"   담당자: {task.display_assignees} | 분류: {', '.join(task.type_names) or '-'} | "
+                f"목표일: {task.target_date} | 상태: {task.status} ({task.progress}%)"
+            )
+            if task.content:
+                task_lines.append(f"   업무내용: {task.content.strip()}")
+        sections.append("■ 선택 업무\n" + "\n".join(task_lines))
+    for heading, content in (
+        ("추가 아젠다 및 사전 공유사항", meeting.agenda_content),
+        ("주요 논의사항", meeting.discussion_notes),
+        ("결정사항", meeting.decisions),
+        ("후속 조치사항", meeting.action_items),
+    ):
+        if content:
+            sections.append(f"■ {heading}\n{content.strip()}")
+    return "\n\n".join(sections) or "작성된 회의내용이 없습니다."
+
+
+def split_meeting_detail(value, first_limit=4500):
+    value = value[:30000]
+    if len(value) <= first_limit:
+        return value, ""
+    split_at = value.rfind("\n\n", 0, first_limit)
+    if split_at < first_limit // 2:
+        split_at = first_limit
+    return value[:split_at].strip(), value[split_at:].strip()
+
+
+def replace_xlsx_cell(sheet_xml, cell_reference, value):
+    reference = re.escape(cell_reference)
+    self_closing_pattern = re.compile(
+        rf'<c(?P<attrs>\b(?=[^>]*\br="{reference}")[^>]*)/>',
+        re.DOTALL,
+    )
+    value_pattern = re.compile(
+        rf'<c(?P<attrs>\b(?=[^>]*\br="{reference}")[^>]*)>.*?</c>',
+        re.DOTALL,
+    )
+    match = self_closing_pattern.search(sheet_xml) or value_pattern.search(sheet_xml)
+    if not match:
+        raise ValueError(f"Excel 양식에서 {cell_reference} 셀을 찾을 수 없습니다.")
+    attrs = re.sub(r'\s+t="[^"]*"', "", match.group("attrs")).rstrip().rstrip("/").rstrip()
+    clean_value = re.sub(
+        r"[\x00-\x08\x0b\x0c\x0e-\x1f]",
+        "",
+        str(value or ""),
+    )
+    escaped_value = xml_escape(clean_value)
+    replacement = (
+        f'<c{attrs} t="inlineStr"><is><t xml:space="preserve">'
+        f"{escaped_value}</t></is></c>"
+    )
+    return sheet_xml[: match.start()] + replacement + sheet_xml[match.end() :]
+
+
+def build_meeting_excel(meeting, app_root_path):
+    template_path = os.path.join(
+        app_root_path,
+        "resources",
+        "meeting_templates",
+        MEETING_TEMPLATE_FILES[meeting.document_type],
+    )
+    output = io.BytesIO()
+    weekday = "월화수목금토일"[meeting.meeting_date.weekday()]
+    short_title = (
+        f"경영 일일회의 아젠다_{meeting.meeting_date:%m/%d}({weekday})"
+        if meeting.document_type == "agenda"
+        else f"경영 일일회의_{meeting.meeting_date:%m/%d}({weekday})"
+    )
+    detail_first, detail_second = split_meeting_detail(meeting_detail_text(meeting))
+    cell_values = {
+        "B11": short_title,
+        "F14": meeting.meeting_date.strftime("%Y-%m-%d"),
+        "M14": f"{meeting.duration_minutes}분" if meeting.duration_minutes else "-",
+        "T14": employee_meeting_label(meeting.author, include_department=True),
+        "AB14": employee_meeting_label(meeting.reporter or meeting.author),
+        "F15": ", ".join(employee_meeting_label(employee) for employee in meeting.attendees)
+        or employee_meeting_label(meeting.author),
+        "F30": "■ 경영 일일회의 아젠다" if meeting.document_type == "agenda" else "■ 경영 일일회의",
+        "F31": detail_first,
+        "F41": detail_second,
+        "F49": meeting.special_notes or "",
+    }
+    cell_values.update(
+        {f"G{row}": value for row, value in zip(range(18, 22), meeting_agenda_lines(meeting))}
+    )
+    cell_values.update(
+        {f"G{row}": value for row, value in zip(range(24, 29), meeting_conclusion_lines(meeting))}
+    )
+    with zipfile.ZipFile(template_path, "r") as source, zipfile.ZipFile(
+        output, "w", compression=zipfile.ZIP_DEFLATED
+    ) as destination:
+        for item in source.infolist():
+            content = source.read(item.filename)
+            if item.filename == "xl/worksheets/sheet1.xml":
+                sheet_xml = content.decode("utf-8")
+                for reference, value in cell_values.items():
+                    sheet_xml = replace_xlsx_cell(sheet_xml, reference, value)
+                content = sheet_xml.encode("utf-8")
+            destination.writestr(item, content)
+    output.seek(0)
+    return output
 
 
 def can_view_all_schedules(user):
@@ -2273,56 +2515,67 @@ def create_app(test_config=None):
     @app.route("/meetings", methods=["GET", "POST"])
     @login_required
     def meetings():
+        staff = eligible_meeting_staff()
         if request.method == "POST":
             document_type = request.form.get("document_type", "agenda")
             if document_type not in MEETING_DOCUMENT_TYPES:
                 abort(400)
             try:
-                meeting_date = date.fromisoformat(
-                    request.form.get("meeting_date", date.today().isoformat())
+                try:
+                    meeting_date = date.fromisoformat(
+                        request.form.get("meeting_date", date.today().isoformat())
+                    )
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("올바른 회의일자를 입력해 주세요.") from exc
+                duration_minutes = request.form.get("duration_minutes", type=int)
+                if duration_minutes is not None and not 1 <= duration_minutes <= 1440:
+                    raise ValueError("회의시간은 1~1,440분 사이로 입력해 주세요.")
+                author, reporter, attendees = parse_meeting_participants(staff)
+                task_ids = {
+                    int(item)
+                    for item in request.form.getlist("task_ids")
+                    if item.isdigit()
+                }
+                selected_tasks = (
+                    db.session.scalars(
+                        visible_task_query(current_user)
+                        .where(Task.id.in_(task_ids))
+                        .order_by(Task.department_id, Task.target_date, Task.id)
+                    ).all()
+                    if task_ids
+                    else []
                 )
-            except ValueError:
-                flash("올바른 회의일자를 입력해 주세요.", "danger")
-                return redirect(url_for("meetings"))
-            task_ids = {
-                int(item)
-                for item in request.form.getlist("task_ids")
-                if item.isdigit()
-            }
-            selected_tasks = (
-                db.session.scalars(
-                    visible_task_query(current_user)
-                    .where(Task.id.in_(task_ids))
-                    .order_by(Task.target_date, Task.id)
-                ).all()
-                if task_ids
-                else []
-            )
-            if len(selected_tasks) != len(task_ids):
-                abort(403)
-            title = request.form.get("title", "").strip()
-            agenda_content = request.form.get("agenda_content", "").strip()
-            discussion_notes = request.form.get("discussion_notes", "").strip()
-            decisions = request.form.get("decisions", "").strip()
-            action_items = request.form.get("action_items", "").strip()
-            has_written_content = (
-                bool(agenda_content)
-                if document_type == "agenda"
-                else any((discussion_notes, decisions, action_items))
-            )
-            if not selected_tasks and not has_written_content:
-                flash("회의 내용 또는 관련 주요업무를 한 건 이상 입력해 주세요.", "danger")
+                if len(selected_tasks) != len(task_ids):
+                    abort(403)
+                title = request.form.get("title", "").strip()
+                agenda_content = request.form.get("agenda_content", "").strip()
+                discussion_notes = request.form.get("discussion_notes", "").strip()
+                decisions = request.form.get("decisions", "").strip()
+                action_items = request.form.get("action_items", "").strip()
+                special_notes = request.form.get("special_notes", "").strip()
+                has_written_content = any(
+                    (agenda_content, discussion_notes, decisions, action_items, special_notes)
+                )
+                if not selected_tasks and not has_written_content:
+                    raise ValueError("회의 내용 또는 관련 업무를 한 건 이상 입력해 주세요.")
+            except ValueError as exc:
+                flash(str(exc) if str(exc) else "올바른 회의일자를 입력해 주세요.", "danger")
             else:
                 meeting = DailyMeeting(
                     meeting_date=meeting_date,
                     document_type=document_type,
                     title=title or f"{meeting_date.isoformat()} {MEETING_DOCUMENT_TYPES[document_type]}",
-                    agenda_content=agenda_content or None if document_type == "agenda" else None,
-                    discussion_notes=discussion_notes or None if document_type == "minutes" else None,
-                    decisions=decisions or None if document_type == "minutes" else None,
-                    action_items=action_items or None if document_type == "minutes" else None,
-                    author_id=current_user.id,
-                    department_id=current_user.department_id,
+                    agenda_content=agenda_content or None,
+                    discussion_notes=discussion_notes or None,
+                    decisions=decisions or None,
+                    action_items=action_items or None,
+                    special_notes=special_notes or None,
+                    duration_minutes=duration_minutes,
+                    author=author,
+                    reporter=reporter,
+                    creator=current_user,
+                    department=author.department,
+                    attendees=attendees,
                     tasks=selected_tasks,
                 )
                 db.session.add(meeting)
@@ -2333,26 +2586,30 @@ def create_app(test_config=None):
                     {
                         "document_type": document_type,
                         "task_count": len(selected_tasks),
+                        "author_id": author.id,
+                        "reporter_id": reporter.id,
+                        "attendee_ids": [employee.id for employee in attendees],
                     },
                 )
                 db.session.commit()
                 return redirect(url_for("meeting_detail", meeting_id=meeting.id))
-        candidate_tasks = db.session.scalars(
-            visible_task_query(current_user)
-            .join(TaskClassification)
-            .where(TaskClassification.name == "주요", Task.status != "완료")
-            .order_by(Task.target_date)
-        ).all()
+        candidate_tasks = meeting_candidate_tasks(current_user)
         meeting_rows = db.session.scalars(select(DailyMeeting).order_by(DailyMeeting.meeting_date.desc(), DailyMeeting.id.desc()).limit(50)).all()
-        if current_user.role.data_scope != "all":
-            meeting_rows = [row for row in meeting_rows if row.department_id == current_user.department_id or row.author_id == current_user.id]
-        return render_template("meetings.html", mode="list", candidate_tasks=candidate_tasks, meetings=meeting_rows)
+        meeting_rows = [row for row in meeting_rows if can_view_meeting(row)]
+        return render_template(
+            "meetings.html",
+            mode="list",
+            candidate_tasks=candidate_tasks,
+            candidate_departments=sorted({task.department.name for task in candidate_tasks}),
+            meetings=meeting_rows,
+            staff=staff,
+        )
 
     @app.get("/meetings/<int:meeting_id>")
     @login_required
     def meeting_detail(meeting_id):
         meeting = db.get_or_404(DailyMeeting, meeting_id)
-        if current_user.role.data_scope != "all" and meeting.department_id != current_user.department_id:
+        if not can_view_meeting(meeting):
             abort(403)
         return render_template(
             "meetings.html",
@@ -2361,57 +2618,84 @@ def create_app(test_config=None):
             can_edit=can_edit_meeting(meeting),
         )
 
+    @app.get("/meetings/<int:meeting_id>/excel")
+    @login_required
+    def meeting_excel(meeting_id):
+        meeting = db.get_or_404(DailyMeeting, meeting_id)
+        if not can_view_meeting(meeting):
+            abort(403)
+        workbook = build_meeting_excel(meeting, app.root_path)
+        safe_label = "아젠다" if meeting.document_type == "agenda" else "회의록"
+        return send_file(
+            workbook,
+            as_attachment=True,
+            download_name=f"메드파크_경영_일일회의_{safe_label}_{meeting.meeting_date:%Y%m%d}.xlsx",
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
     @app.route("/meetings/<int:meeting_id>/edit", methods=["GET", "POST"])
     @login_required
     def meeting_edit(meeting_id):
         meeting = db.get_or_404(DailyMeeting, meeting_id)
         if not can_edit_meeting(meeting):
             abort(403)
+        staff = eligible_meeting_staff()
         if request.method == "POST":
             document_type = request.form.get("document_type", meeting.document_type)
             if document_type not in MEETING_DOCUMENT_TYPES:
                 abort(400)
             try:
-                meeting_date = date.fromisoformat(request.form.get("meeting_date", ""))
-            except ValueError:
-                flash("올바른 회의일자를 입력해 주세요.", "danger")
-                return redirect(url_for("meeting_edit", meeting_id=meeting.id))
-            task_ids = {
-                int(item)
-                for item in request.form.getlist("task_ids")
-                if item.isdigit()
-            }
-            selected_tasks = (
-                db.session.scalars(
-                    visible_task_query(current_user)
-                    .where(Task.id.in_(task_ids))
-                    .order_by(Task.target_date, Task.id)
-                ).all()
-                if task_ids
-                else []
-            )
-            if len(selected_tasks) != len(task_ids):
-                abort(403)
-            title = request.form.get("title", "").strip()
-            agenda_content = request.form.get("agenda_content", "").strip()
-            discussion_notes = request.form.get("discussion_notes", "").strip()
-            decisions = request.form.get("decisions", "").strip()
-            action_items = request.form.get("action_items", "").strip()
-            has_written_content = (
-                bool(agenda_content)
-                if document_type == "agenda"
-                else any((discussion_notes, decisions, action_items))
-            )
-            if not selected_tasks and not has_written_content:
-                flash("회의 내용 또는 관련 주요업무를 한 건 이상 입력해 주세요.", "danger")
+                try:
+                    meeting_date = date.fromisoformat(request.form.get("meeting_date", ""))
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("올바른 회의일자를 입력해 주세요.") from exc
+                duration_minutes = request.form.get("duration_minutes", type=int)
+                if duration_minutes is not None and not 1 <= duration_minutes <= 1440:
+                    raise ValueError("회의시간은 1~1,440분 사이로 입력해 주세요.")
+                author, reporter, attendees = parse_meeting_participants(staff)
+                task_ids = {
+                    int(item)
+                    for item in request.form.getlist("task_ids")
+                    if item.isdigit()
+                }
+                selected_tasks = (
+                    db.session.scalars(
+                        visible_task_query(current_user)
+                        .where(Task.id.in_(task_ids))
+                        .order_by(Task.department_id, Task.target_date, Task.id)
+                    ).all()
+                    if task_ids
+                    else []
+                )
+                if len(selected_tasks) != len(task_ids):
+                    abort(403)
+                title = request.form.get("title", "").strip()
+                agenda_content = request.form.get("agenda_content", "").strip()
+                discussion_notes = request.form.get("discussion_notes", "").strip()
+                decisions = request.form.get("decisions", "").strip()
+                action_items = request.form.get("action_items", "").strip()
+                special_notes = request.form.get("special_notes", "").strip()
+                if not selected_tasks and not any(
+                    (agenda_content, discussion_notes, decisions, action_items, special_notes)
+                ):
+                    raise ValueError("회의 내용 또는 관련 업무를 한 건 이상 입력해 주세요.")
+            except ValueError as exc:
+                flash(str(exc) if str(exc) else "올바른 회의일자를 입력해 주세요.", "danger")
                 return redirect(url_for("meeting_edit", meeting_id=meeting.id))
             meeting.meeting_date = meeting_date
             meeting.document_type = document_type
             meeting.title = title or f"{meeting_date.isoformat()} {MEETING_DOCUMENT_TYPES[document_type]}"
-            meeting.agenda_content = agenda_content or None if document_type == "agenda" else None
-            meeting.discussion_notes = discussion_notes or None if document_type == "minutes" else None
-            meeting.decisions = decisions or None if document_type == "minutes" else None
-            meeting.action_items = action_items or None if document_type == "minutes" else None
+            meeting.agenda_content = agenda_content or None
+            meeting.discussion_notes = discussion_notes or None
+            meeting.decisions = decisions or None
+            meeting.action_items = action_items or None
+            meeting.special_notes = special_notes or None
+            meeting.duration_minutes = duration_minutes
+            meeting.author = author
+            meeting.reporter = reporter
+            meeting.department = author.department
+            meeting.attendees = attendees
+            meeting.created_by_id = meeting.created_by_id or current_user.id
             meeting.tasks = selected_tasks
             audit(
                 "MEETING_UPDATE",
@@ -2419,6 +2703,9 @@ def create_app(test_config=None):
                 {
                     "document_type": document_type,
                     "task_count": len(selected_tasks),
+                    "author_id": author.id,
+                    "reporter_id": reporter.id,
+                    "attendee_ids": [employee.id for employee in attendees],
                 },
             )
             db.session.commit()
@@ -2426,22 +2713,15 @@ def create_app(test_config=None):
             return redirect(url_for("meeting_detail", meeting_id=meeting.id))
 
         selected_task_ids = {task.id for task in meeting.tasks}
-        candidate_tasks = db.session.scalars(
-            visible_task_query(current_user)
-            .join(TaskClassification)
-            .where(
-                TaskClassification.name == "주요",
-                or_(Task.status != "완료", Task.id.in_(selected_task_ids)),
-            )
-            .distinct()
-            .order_by(Task.target_date, Task.id)
-        ).all()
+        candidate_tasks = meeting_candidate_tasks(current_user, selected_task_ids)
         return render_template(
             "meetings.html",
             mode="edit",
             meeting=meeting,
             candidate_tasks=candidate_tasks,
+            candidate_departments=sorted({task.department.name for task in candidate_tasks}),
             selected_task_ids=selected_task_ids,
+            staff=staff,
         )
 
     @app.get("/journals")
