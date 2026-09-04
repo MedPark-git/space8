@@ -142,6 +142,107 @@ const initEmployeeSearch = (root = document) => {
   });
 };
 
+const initMeetingDocumentForms = (root = document) => {
+  root.querySelectorAll("[data-meeting-document-form]").forEach((form) => {
+    if (form.dataset.meetingBound) return;
+    form.dataset.meetingBound = "true";
+    const radios = [...form.querySelectorAll("input[name='document_type']")];
+    const fieldGroups = [...form.querySelectorAll("[data-meeting-fields]")];
+    const updateFields = () => {
+      const selectedType = radios.find((radio) => radio.checked)?.value || "agenda";
+      fieldGroups.forEach((group) => {
+        const active = group.dataset.meetingFields === selectedType;
+        group.hidden = !active;
+        group.querySelectorAll("input, textarea, select").forEach((control) => {
+          control.disabled = !active;
+        });
+      });
+      radios.forEach((radio) => {
+        radio.closest(".meeting-type-card")?.classList.toggle("active", radio.checked);
+      });
+    };
+    radios.forEach((radio) => radio.addEventListener("change", updateFields));
+    updateFields();
+  });
+};
+
+const copyComputedStyles = (source, clone) => {
+  const sourceNodes = [source, ...source.querySelectorAll("*")];
+  const cloneNodes = [clone, ...clone.querySelectorAll("*")];
+  sourceNodes.forEach((sourceNode, index) => {
+    const cloneNode = cloneNodes[index];
+    if (!cloneNode) return;
+    const computed = window.getComputedStyle(sourceNode);
+    [...computed].forEach((property) => {
+      cloneNode.style.setProperty(property, computed.getPropertyValue(property), computed.getPropertyPriority(property));
+    });
+  });
+};
+
+const downloadElementAsPng = async (button) => {
+  const target = document.getElementById(button.dataset.imageTarget || "");
+  if (!target) throw new Error("이미지로 저장할 문서를 찾을 수 없습니다.");
+  await document.fonts?.ready;
+  const width = Math.ceil(target.scrollWidth);
+  const height = Math.ceil(target.scrollHeight);
+  const clone = target.cloneNode(true);
+  copyComputedStyles(target, clone);
+  clone.style.margin = "0";
+  clone.style.width = `${width}px`;
+  clone.style.maxWidth = "none";
+  const markup = new XMLSerializer().serializeToString(clone);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml">${markup}</div></foreignObject></svg>`;
+  const svgUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+  try {
+    const image = new Image();
+    image.decoding = "async";
+    image.src = svgUrl;
+    await image.decode();
+    const scale = Math.min(2, 12000 / width, 12000 / height);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.floor(width * scale));
+    canvas.height = Math.max(1, Math.floor(height * scale));
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob((result) => result ? resolve(result) : reject(new Error("PNG 변환에 실패했습니다.")), "image/png");
+    });
+    const filename = (button.dataset.imageFilename || "일일회의")
+      .replace(/[\\/:*?"<>|]+/g, "-")
+      .trim();
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = `${filename || "일일회의"}.png`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+  } finally {
+    URL.revokeObjectURL(svgUrl);
+  }
+};
+
+const initMeetingImageDownload = (root = document) => {
+  root.querySelectorAll("[data-download-image]").forEach((button) => {
+    if (button.dataset.imageBound) return;
+    button.dataset.imageBound = "true";
+    button.addEventListener("click", async () => {
+      const originalLabel = button.textContent;
+      button.disabled = true;
+      button.textContent = "이미지 생성 중...";
+      try {
+        await downloadElementAsPng(button);
+      } catch (_error) {
+        window.alert("이미지를 저장하지 못했습니다. 인쇄 기능에서 PDF 저장을 이용해 주세요.");
+      } finally {
+        button.disabled = false;
+        button.textContent = originalLabel;
+      }
+    });
+  });
+};
+
 document.addEventListener("DOMContentLoaded", () => {
   const nav = document.querySelector(".main-nav");
   document.querySelector(".nav-toggle")?.addEventListener("click", () => nav?.classList.toggle("open"));
@@ -149,6 +250,8 @@ document.addEventListener("DOMContentLoaded", () => {
   initBulkJournal();
   initCadenceFiltering();
   initEmployeeSearch();
+  initMeetingDocumentForms();
+  initMeetingImageDownload();
 
   setTimeout(() => document.querySelectorAll(".flash").forEach((item) => item.remove()), 6000);
 });

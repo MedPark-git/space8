@@ -86,6 +86,10 @@ ACCOUNT_LOCK_MINUTES = 15
 PASSWORD_MIN_LENGTH = 8
 TEMP_PASSWORD_MIN_LENGTH = PASSWORD_MIN_LENGTH
 REGISTRATION_PASSWORD_MIN_LENGTH = PASSWORD_MIN_LENGTH
+MEETING_DOCUMENT_TYPES = {
+    "agenda": "일일 회의 아젠다",
+    "minutes": "일일 회의 회의록",
+}
 
 
 def normalize_cadence_value(value):
@@ -554,12 +558,23 @@ class DailyMeeting(db.Model):
     __tablename__ = "daily_meetings"
     id = db.Column(db.Integer, primary_key=True)
     meeting_date = db.Column(db.Date, nullable=False, index=True)
+    document_type = db.Column(db.String(20), nullable=False, default="agenda", server_default="agenda", index=True)
+    title = db.Column(db.String(200), nullable=False, default="")
+    agenda_content = db.Column(db.Text, nullable=True)
+    discussion_notes = db.Column(db.Text, nullable=True)
+    decisions = db.Column(db.Text, nullable=True)
+    action_items = db.Column(db.Text, nullable=True)
     author_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False)
     department_id = db.Column(db.Integer, db.ForeignKey("departments.id"), nullable=False)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
     author = db.relationship("Employee")
     department = db.relationship("Department")
     tasks = db.relationship("Task", secondary=daily_meeting_item)
+
+    @property
+    def document_label(self):
+        return MEETING_DOCUMENT_TYPES.get(self.document_type, MEETING_DOCUMENT_TYPES["agenda"])
 
 
 class Attachment(db.Model):
@@ -682,6 +697,15 @@ def get_active_task_or_404(task_id):
 
 def can_write_department(department_id):
     return current_user.role.allows("task_manage_all") or department_id == current_user.department_id
+
+
+def can_edit_meeting(meeting):
+    if meeting.author_id == current_user.id or current_user.role.data_scope == "all":
+        return True
+    return (
+        current_user.role.data_scope == "department"
+        and meeting.department_id == current_user.department_id
+    )
 
 
 def can_view_all_schedules(user):
@@ -1299,6 +1323,7 @@ def create_app(test_config=None):
             "STATUS_CLASS": STATUS_CLASS,
             "PASSWORD_MIN_LENGTH": PASSWORD_MIN_LENGTH,
             "REGISTRATION_PASSWORD_MIN_LENGTH": REGISTRATION_PASSWORD_MIN_LENGTH,
+            "MEETING_DOCUMENT_TYPES": MEETING_DOCUMENT_TYPES,
             "today": date.today(),
         }
 
@@ -2249,21 +2274,67 @@ def create_app(test_config=None):
     @login_required
     def meetings():
         if request.method == "POST":
-            task_ids = [int(item) for item in request.form.getlist("task_ids")]
-            meeting_date = date.fromisoformat(request.form.get("meeting_date", date.today().isoformat()))
-            selected_tasks = db.session.scalars(visible_task_query(current_user).where(Task.id.in_(task_ids))).all() if task_ids else []
-            if not selected_tasks:
-                flash("회의에 등록할 주요 업무를 선택해 주세요.", "danger")
+            document_type = request.form.get("document_type", "agenda")
+            if document_type not in MEETING_DOCUMENT_TYPES:
+                abort(400)
+            try:
+                meeting_date = date.fromisoformat(
+                    request.form.get("meeting_date", date.today().isoformat())
+                )
+            except ValueError:
+                flash("올바른 회의일자를 입력해 주세요.", "danger")
+                return redirect(url_for("meetings"))
+            task_ids = {
+                int(item)
+                for item in request.form.getlist("task_ids")
+                if item.isdigit()
+            }
+            selected_tasks = (
+                db.session.scalars(
+                    visible_task_query(current_user)
+                    .where(Task.id.in_(task_ids))
+                    .order_by(Task.target_date, Task.id)
+                ).all()
+                if task_ids
+                else []
+            )
+            if len(selected_tasks) != len(task_ids):
+                abort(403)
+            title = request.form.get("title", "").strip()
+            agenda_content = request.form.get("agenda_content", "").strip()
+            discussion_notes = request.form.get("discussion_notes", "").strip()
+            decisions = request.form.get("decisions", "").strip()
+            action_items = request.form.get("action_items", "").strip()
+            has_written_content = (
+                bool(agenda_content)
+                if document_type == "agenda"
+                else any((discussion_notes, decisions, action_items))
+            )
+            if not selected_tasks and not has_written_content:
+                flash("회의 내용 또는 관련 주요업무를 한 건 이상 입력해 주세요.", "danger")
             else:
                 meeting = DailyMeeting(
                     meeting_date=meeting_date,
+                    document_type=document_type,
+                    title=title or f"{meeting_date.isoformat()} {MEETING_DOCUMENT_TYPES[document_type]}",
+                    agenda_content=agenda_content or None if document_type == "agenda" else None,
+                    discussion_notes=discussion_notes or None if document_type == "minutes" else None,
+                    decisions=decisions or None if document_type == "minutes" else None,
+                    action_items=action_items or None if document_type == "minutes" else None,
                     author_id=current_user.id,
                     department_id=current_user.department_id,
                     tasks=selected_tasks,
                 )
                 db.session.add(meeting)
                 db.session.flush()
-                audit("MEETING_CREATE", f"meeting:{meeting.id}", {"task_count": len(selected_tasks)})
+                audit(
+                    "MEETING_CREATE",
+                    f"meeting:{meeting.id}",
+                    {
+                        "document_type": document_type,
+                        "task_count": len(selected_tasks),
+                    },
+                )
                 db.session.commit()
                 return redirect(url_for("meeting_detail", meeting_id=meeting.id))
         candidate_tasks = db.session.scalars(
@@ -2283,7 +2354,95 @@ def create_app(test_config=None):
         meeting = db.get_or_404(DailyMeeting, meeting_id)
         if current_user.role.data_scope != "all" and meeting.department_id != current_user.department_id:
             abort(403)
-        return render_template("meetings.html", mode="detail", meeting=meeting)
+        return render_template(
+            "meetings.html",
+            mode="detail",
+            meeting=meeting,
+            can_edit=can_edit_meeting(meeting),
+        )
+
+    @app.route("/meetings/<int:meeting_id>/edit", methods=["GET", "POST"])
+    @login_required
+    def meeting_edit(meeting_id):
+        meeting = db.get_or_404(DailyMeeting, meeting_id)
+        if not can_edit_meeting(meeting):
+            abort(403)
+        if request.method == "POST":
+            document_type = request.form.get("document_type", meeting.document_type)
+            if document_type not in MEETING_DOCUMENT_TYPES:
+                abort(400)
+            try:
+                meeting_date = date.fromisoformat(request.form.get("meeting_date", ""))
+            except ValueError:
+                flash("올바른 회의일자를 입력해 주세요.", "danger")
+                return redirect(url_for("meeting_edit", meeting_id=meeting.id))
+            task_ids = {
+                int(item)
+                for item in request.form.getlist("task_ids")
+                if item.isdigit()
+            }
+            selected_tasks = (
+                db.session.scalars(
+                    visible_task_query(current_user)
+                    .where(Task.id.in_(task_ids))
+                    .order_by(Task.target_date, Task.id)
+                ).all()
+                if task_ids
+                else []
+            )
+            if len(selected_tasks) != len(task_ids):
+                abort(403)
+            title = request.form.get("title", "").strip()
+            agenda_content = request.form.get("agenda_content", "").strip()
+            discussion_notes = request.form.get("discussion_notes", "").strip()
+            decisions = request.form.get("decisions", "").strip()
+            action_items = request.form.get("action_items", "").strip()
+            has_written_content = (
+                bool(agenda_content)
+                if document_type == "agenda"
+                else any((discussion_notes, decisions, action_items))
+            )
+            if not selected_tasks and not has_written_content:
+                flash("회의 내용 또는 관련 주요업무를 한 건 이상 입력해 주세요.", "danger")
+                return redirect(url_for("meeting_edit", meeting_id=meeting.id))
+            meeting.meeting_date = meeting_date
+            meeting.document_type = document_type
+            meeting.title = title or f"{meeting_date.isoformat()} {MEETING_DOCUMENT_TYPES[document_type]}"
+            meeting.agenda_content = agenda_content or None if document_type == "agenda" else None
+            meeting.discussion_notes = discussion_notes or None if document_type == "minutes" else None
+            meeting.decisions = decisions or None if document_type == "minutes" else None
+            meeting.action_items = action_items or None if document_type == "minutes" else None
+            meeting.tasks = selected_tasks
+            audit(
+                "MEETING_UPDATE",
+                f"meeting:{meeting.id}",
+                {
+                    "document_type": document_type,
+                    "task_count": len(selected_tasks),
+                },
+            )
+            db.session.commit()
+            flash(f"{meeting.document_label}을(를) 수정했습니다.", "success")
+            return redirect(url_for("meeting_detail", meeting_id=meeting.id))
+
+        selected_task_ids = {task.id for task in meeting.tasks}
+        candidate_tasks = db.session.scalars(
+            visible_task_query(current_user)
+            .join(TaskClassification)
+            .where(
+                TaskClassification.name == "주요",
+                or_(Task.status != "완료", Task.id.in_(selected_task_ids)),
+            )
+            .distinct()
+            .order_by(Task.target_date, Task.id)
+        ).all()
+        return render_template(
+            "meetings.html",
+            mode="edit",
+            meeting=meeting,
+            candidate_tasks=candidate_tasks,
+            selected_task_ids=selected_task_ids,
+        )
 
     @app.get("/journals")
     @login_required

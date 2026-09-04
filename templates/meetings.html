@@ -1,11 +1,150 @@
 {% extends "base.html" %}
+
+{% macro document_type_selector(selected_type) %}
+<div class="meeting-type-selector" role="radiogroup" aria-label="일일회의 문서 선택">
+  <label class="meeting-type-card">
+    <input type="radio" name="document_type" value="agenda" {{ 'checked' if selected_type == 'agenda' else '' }}>
+    <span><b>일일 회의 아젠다</b><small>회의 전 논의할 안건과 사전 공유사항을 작성합니다.</small></span>
+  </label>
+  <label class="meeting-type-card">
+    <input type="radio" name="document_type" value="minutes" {{ 'checked' if selected_type == 'minutes' else '' }}>
+    <span><b>일일 회의 회의록</b><small>회의 후 논의내용, 결정사항과 후속 조치를 기록합니다.</small></span>
+  </label>
+</div>
+{% endmacro %}
+
+{% macro task_selector(candidate_tasks, selected_ids) %}
+<div class="select-task-list meeting-task-list">
+  {% for task in candidate_tasks %}
+  <label>
+    <input type="checkbox" name="task_ids" value="{{ task.id }}" {{ 'checked' if task.id in selected_ids or task.id|string in selected_ids else '' }}>
+    <span><strong>{{ task.title }}</strong><small>{{ task.department.name }} · {{ task.display_assignees }} · 목표 {{ task.target_date }}</small></span>
+    <span class="status {{ task.status_class }}">{{ task.status }}</span>
+  </label>
+  {% else %}
+  <p class="empty">선택 가능한 주요업무가 없습니다.</p>
+  {% endfor %}
+</div>
+{% endmacro %}
+
 {% block content %}
 {% if mode == 'list' %}
-<div class="page-heading"><div><span class="eyebrow">DAILY MEETING</span><h1>일일 회의 현황</h1><p>주요 업무를 선택하여 일일회의 자료를 자동 생성합니다.</p></div></div>
-<section class="content-grid meeting-grid"><article class="panel span-2"><div class="panel-head"><div><h2>회의 자료 생성</h2><p>진행 중인 주요업무를 선택하세요.</p></div></div><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="inline-date">회의일자<input type="date" name="meeting_date" value="{{ today.isoformat() }}" required></label><div class="select-task-list">{% for task in candidate_tasks %}<label><input type="checkbox" name="task_ids" value="{{ task.id }}"><span><strong>{{ task.title }}</strong><small>{{ task.department.name }} · {{ task.display_assignees }} · 목표 {{ task.target_date }}</small></span><span class="status {{ task.status_class }}">{{ task.status }}</span></label>{% else %}<p class="empty">선택 가능한 주요업무가 없습니다.</p>{% endfor %}</div><button class="button primary" type="submit">선택 업무로 회의자료 생성</button></form></article>
-<aside class="panel"><div class="panel-head"><div><h2>최근 회의자료</h2></div></div><div class="meeting-list">{% for item in meetings %}<a href="{{ url_for('meeting_detail', meeting_id=item.id) }}"><strong>{{ item.meeting_date }}</strong><span>{{ item.department.name }}</span><small>{{ item.tasks|length }}건 · {{ item.author.name }}</small></a>{% else %}<p class="empty">등록된 자료가 없습니다.</p>{% endfor %}</div></aside></section>
+{% set selected_type = request.form.get('document_type', 'agenda') %}
+<div class="page-heading">
+  <div><span class="eyebrow">DAILY MEETING</span><h1>일일회의</h1><p>회의 전 아젠다와 회의 후 회의록을 구분하여 작성합니다.</p></div>
+</div>
+<section class="content-grid meeting-grid">
+  <article class="panel span-2">
+    <div class="panel-head"><div><h2>새 일일회의 문서 작성</h2><p>작성할 문서 종류를 먼저 선택하세요.</p></div></div>
+    <form method="post" data-meeting-document-form>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {{ document_type_selector(selected_type) }}
+      <div class="meeting-form-meta">
+        <label>회의일자<input type="date" name="meeting_date" value="{{ request.form.get('meeting_date', today.isoformat()) }}" required></label>
+        <label>문서 제목<input type="text" name="title" maxlength="200" value="{{ request.form.get('title', '') }}" placeholder="미입력 시 날짜와 문서 종류로 자동 생성"></label>
+      </div>
+      <section class="meeting-fields" data-meeting-fields="agenda">
+        <label>회의 안건 및 사전 공유사항<textarea name="agenda_content" rows="9" placeholder="논의할 안건, 확인이 필요한 사항, 사전 공유내용을 작성해 주세요.">{{ request.form.get('agenda_content', '') }}</textarea></label>
+      </section>
+      <section class="meeting-fields" data-meeting-fields="minutes">
+        <label>주요 논의사항<textarea name="discussion_notes" rows="6" placeholder="회의에서 논의한 주요 내용을 작성해 주세요.">{{ request.form.get('discussion_notes', '') }}</textarea></label>
+        <label>결정사항<textarea name="decisions" rows="4" placeholder="확정된 내용과 의사결정 사항을 작성해 주세요.">{{ request.form.get('decisions', '') }}</textarea></label>
+        <label>후속 조치사항<textarea name="action_items" rows="5" placeholder="담당자, 실행할 업무와 기한을 함께 작성해 주세요.">{{ request.form.get('action_items', '') }}</textarea></label>
+      </section>
+      <div class="meeting-task-head"><div><h3>관련 주요업무</h3><p>문서에 함께 표시할 업무가 있을 때만 선택하세요.</p></div></div>
+      {{ task_selector(candidate_tasks, request.form.getlist('task_ids')) }}
+      <div class="form-actions"><button class="button primary" type="submit">일일회의 문서 저장</button></div>
+    </form>
+  </article>
+  <aside class="panel">
+    <div class="panel-head"><div><h2>최근 일일회의 문서</h2></div></div>
+    <div class="meeting-list">
+      {% for item in meetings %}
+      <a href="{{ url_for('meeting_detail', meeting_id=item.id) }}">
+        <span class="meeting-document-badge {{ item.document_type }}">{{ item.document_label }}</span>
+        <strong>{{ item.title or item.meeting_date }}</strong>
+        <span>{{ item.meeting_date }} · {{ item.department.name }}</span>
+        <small>관련 업무 {{ item.tasks|length }}건 · {{ item.author.name }}</small>
+      </a>
+      {% else %}
+      <p class="empty">등록된 문서가 없습니다.</p>
+      {% endfor %}
+    </div>
+  </aside>
+</section>
+
+{% elif mode == 'edit' %}
+<div class="page-heading">
+  <div><span class="eyebrow">EDIT DAILY MEETING #{{ meeting.id }}</span><h1>{{ meeting.document_label }} 수정</h1><p>{{ meeting.meeting_date }} · {{ meeting.department.name }}</p></div>
+  <a class="button ghost" href="{{ url_for('meeting_detail', meeting_id=meeting.id) }}">수정 취소</a>
+</div>
+<article class="panel meeting-edit-panel">
+  <form method="post" data-meeting-document-form>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {{ document_type_selector(meeting.document_type) }}
+    <div class="meeting-form-meta">
+      <label>회의일자<input type="date" name="meeting_date" value="{{ meeting.meeting_date.isoformat() }}" required></label>
+      <label>문서 제목<input type="text" name="title" maxlength="200" value="{{ meeting.title }}" required></label>
+    </div>
+    <section class="meeting-fields" data-meeting-fields="agenda">
+      <label>회의 안건 및 사전 공유사항<textarea name="agenda_content" rows="9">{{ meeting.agenda_content or '' }}</textarea></label>
+    </section>
+    <section class="meeting-fields" data-meeting-fields="minutes">
+      <label>주요 논의사항<textarea name="discussion_notes" rows="6">{{ meeting.discussion_notes or '' }}</textarea></label>
+      <label>결정사항<textarea name="decisions" rows="4">{{ meeting.decisions or '' }}</textarea></label>
+      <label>후속 조치사항<textarea name="action_items" rows="5">{{ meeting.action_items or '' }}</textarea></label>
+    </section>
+    <div class="meeting-task-head"><div><h3>관련 주요업무</h3><p>문서에 함께 표시할 업무가 있을 때만 선택하세요.</p></div></div>
+    {{ task_selector(candidate_tasks, selected_task_ids) }}
+    <div class="form-actions"><a class="button ghost" href="{{ url_for('meeting_detail', meeting_id=meeting.id) }}">취소</a><button class="button primary" type="submit">수정 내용 저장</button></div>
+  </form>
+</article>
+
 {% else %}
-<div class="page-heading no-print"><div><span class="eyebrow">DAILY MEETING #{{ meeting.id }}</span><h1>일일 회의 자료</h1><p>{{ meeting.meeting_date }}</p></div><div class="button-row"><button class="button primary" onclick="window.print()">인쇄</button><a class="button ghost" href="{{ url_for('meetings') }}">목록</a></div></div>
-<article class="print-sheet"><header><span>MEDPARK</span><h1>경영사업본부 일일 회의 현황</h1><div><b>회의일자</b> {{ meeting.meeting_date }} <b>부서(팀)</b> {{ meeting.department.name }} <b>작성자</b> {{ meeting.author.name }}</div></header><table><thead><tr><th>No.</th><th>구분</th><th>업무명</th><th>담당자</th><th>목표일</th><th>진행률</th><th>상태</th></tr></thead><tbody>{% for task in meeting.tasks %}<tr><td>{{ loop.index }}</td><td>{{ task.type_names|join(', ') }}</td><td><strong>{{ task.title }}</strong><p>{{ task.content or '' }}</p></td><td>{{ task.display_assignees }}</td><td>{{ task.target_date }}</td><td>{{ task.progress }}%</td><td>{{ task.status }}</td></tr>{% endfor %}</tbody></table><footer>출력일시 {{ today }} · 경영사업본부 각 부서(팀) 업무 현황 시스템</footer></article>
+<div class="page-heading no-print">
+  <div><span class="eyebrow">DAILY MEETING #{{ meeting.id }}</span><h1>{{ meeting.document_label }}</h1><p>{{ meeting.meeting_date }} · {{ meeting.department.name }}</p></div>
+  <div class="button-row">
+    <button class="button primary" type="button" onclick="window.print()">인쇄</button>
+    <button class="button ghost" type="button" data-download-image data-image-target="meeting-document" data-image-filename="{{ meeting.meeting_date }}-{{ meeting.document_label }}">이미지 저장</button>
+    {% if can_edit %}<a class="button ghost" href="{{ url_for('meeting_edit', meeting_id=meeting.id) }}">수정</a>{% endif %}
+    <a class="button ghost" href="{{ url_for('meetings') }}">목록</a>
+  </div>
+</div>
+<article class="print-sheet meeting-document {{ meeting.document_type }}" id="meeting-document">
+  <header>
+    <span>MEDPARK</span>
+    <h1>{{ meeting.title }}</h1>
+    <div><b>문서구분</b> {{ meeting.document_label }} <b>회의일자</b> {{ meeting.meeting_date }} <b>부서(팀)</b> {{ meeting.department.name }} <b>작성자</b> {{ meeting.author.name }}</div>
+  </header>
+  {% if meeting.document_type == 'agenda' %}
+  <section class="meeting-document-section">
+    <h2>회의 안건 및 사전 공유사항</h2>
+    <div class="meeting-written-content">{{ meeting.agenda_content or '작성된 안건이 없습니다.' }}</div>
+  </section>
+  {% else %}
+  <section class="meeting-document-section">
+    <h2>주요 논의사항</h2>
+    <div class="meeting-written-content">{{ meeting.discussion_notes or '작성된 내용이 없습니다.' }}</div>
+  </section>
+  <section class="meeting-document-section">
+    <h2>결정사항</h2>
+    <div class="meeting-written-content">{{ meeting.decisions or '작성된 내용이 없습니다.' }}</div>
+  </section>
+  <section class="meeting-document-section">
+    <h2>후속 조치사항</h2>
+    <div class="meeting-written-content">{{ meeting.action_items or '작성된 내용이 없습니다.' }}</div>
+  </section>
+  {% endif %}
+  {% if meeting.tasks %}
+  <section class="meeting-document-section related-tasks">
+    <h2>관련 주요업무</h2>
+    <table>
+      <thead><tr><th>No.</th><th>구분</th><th>업무명</th><th>담당자</th><th>목표일</th><th>진행률</th><th>상태</th></tr></thead>
+      <tbody>{% for task in meeting.tasks %}<tr><td>{{ loop.index }}</td><td>{{ task.type_names|join(', ') }}</td><td><strong>{{ task.title }}</strong><p>{{ task.content or '' }}</p></td><td>{{ task.display_assignees }}</td><td>{{ task.target_date }}</td><td>{{ task.progress }}%</td><td>{{ task.status }}</td></tr>{% endfor %}</tbody>
+    </table>
+  </section>
+  {% endif %}
+  <footer>출력일자 {{ today }} · 경영사업본부 각 부서(팀) 업무 현황 시스템</footer>
+</article>
 {% endif %}
 {% endblock %}
