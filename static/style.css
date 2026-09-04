@@ -50,3 +50,12 @@
 .calendar-manage-column{width:64px;text-align:center}.calendar-delete-form{display:inline-flex;margin:0}.button.icon-only{width:32px;height:32px;padding:0;align-items:center;justify-content:center}.button.icon-only .button-icon{margin:0}
 .auth-register-cta{border-top:1px solid var(--line);margin-top:24px;padding-top:18px;text-align:center;display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted)}.auth-register-cta a{color:var(--blue);font-size:14px;font-weight:800}.auth-register-cta small{font-size:11px}.auth-register-card{width:min(1180px,100%);grid-template-columns:.9fr 1.1fr}.auth-register-card .auth-form-wrap{padding:36px 44px}.auth-register-form{display:grid;grid-template-columns:1fr 1fr;gap:13px 16px}.auth-register-form .span-2{grid-column:span 2}.auth-register-form label>small{color:var(--muted);font-weight:500}.auth-register-actions{display:flex;justify-content:flex-end;gap:8px}.employee-account-counts{display:flex;align-items:center;gap:8px}.employee-pending-count{display:inline-flex;align-items:center;gap:7px;border:1px solid #f0dda6;border-radius:10px;background:var(--amber-soft);color:var(--amber);padding:10px 13px;font-size:12px;font-weight:700;white-space:nowrap}
 @media(max-width:760px){.auth-register-form{grid-template-columns:1fr}.auth-register-form .span-2{grid-column:span 1}.auth-register-actions{flex-direction:column-reverse}.auth-register-actions .button{width:100%}.employee-account-counts{align-items:stretch;flex-direction:column}.employee-active-count,.employee-pending-count{align-self:flex-start}}
+
+.status.progress{width:auto;max-width:none;height:auto;overflow:visible}
+.task-progress{width:90px;max-width:100%;height:6px;border-radius:999px;background:#e7ebf1;overflow:hidden}
+.task-progress span{display:block;height:100%;background:var(--blue);border-radius:inherit}
+.detail-status-progress strong{display:flex;align-items:center;gap:9px;margin-bottom:9px}
+.detail-progress-value{font-size:14px;color:var(--ink)}
+.detail-status-progress .task-progress{width:100%;max-width:160px}
+.calendar-panel>.calendar-legend{align-items:center;padding:0 6px 14px;margin-bottom:16px;border-bottom:1px solid var(--line)}
+@media(max-width:760px){.calendar-panel>.calendar-legend{position:sticky;left:0;min-width:calc(100vw - 44px);margin-bottom:4px;padding:8px 2px 12px}}

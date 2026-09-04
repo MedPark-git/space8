@@ -367,6 +367,18 @@ class TaskDeleteTests(unittest.TestCase):
             )
         )
 
+    def test_calendar_legend_is_above_month_navigation(self):
+        self.login("member1")
+        page = self.client.get("/calendar")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(page.data.count(b'class="calendar-legend"'), 1)
+        self.assertLess(
+            page.data.index(b'class="calendar-legend"'),
+            page.data.index(b'class="calendar-head"'),
+        )
+        self.assertIn("일정 상태 색상 안내".encode(), page.data)
+
     def test_calendar_page_hides_delete_icon_and_blocks_other_team_member(self):
         task = db.session.get(Task, self.security_task_id)
         task.calendar_selected = True

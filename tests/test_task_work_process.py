@@ -139,6 +139,23 @@ class TaskWorkProcessTests(unittest.TestCase):
         self.assertEqual(detail.status_code, 200)
         self.assertIn("등록된 업무 프로세스가 없습니다".encode(), detail.data)
 
+    def test_detail_status_and_progress_use_separate_visible_components(self):
+        self.task.target_date = date(2099, 12, 31)
+        self.task.status = "진행중"
+        db.session.commit()
+        detail = self.client.get(f"/tasks/{self.task_id}")
+
+        self.assertEqual(detail.status_code, 200)
+        self.assertIn(b'<span class="status progress">', detail.data)
+        self.assertIn(b'class="detail-progress-value">0%</span>', detail.data)
+        self.assertIn(b'class="task-progress" role="progressbar"', detail.data)
+        self.assertIn(b'aria-valuenow="0"', detail.data)
+
+        with self.client.get("/static/style.css") as stylesheet:
+            self.assertEqual(stylesheet.status_code, 200)
+            self.assertIn(b".status.progress{width:auto;max-width:none;height:auto;overflow:visible}", stylesheet.data)
+            self.assertIn(b".task-progress{", stylesheet.data)
+
     def create_source_match(self, source_ref, **overrides):
         values = {
             "title": "DRM · 모니터링 복제",

@@ -2,6 +2,7 @@
 {% block content %}
 <div class="page-heading"><div><span class="eyebrow">CALENDAR</span><h1>일정(캘린더)</h1><p>{% if can_view_all_schedules %}전체 부서(팀)의 선택 등록 업무와 자동 등록 업무를 확인합니다.{% else %}소속 부서(팀)의 선택 등록 업무와 자동 등록 업무를 확인합니다.{% endif %}</p></div><a class="button ghost" href="{{ url_for('task_list') }}">게시판형 보기</a></div>
 <section class="panel calendar-panel">
+  <div class="calendar-legend" aria-label="일정 상태 색상 안내"><span><i class="dot progress"></i>진행중</span><span><i class="dot done"></i>완료</span><span><i class="dot delayed"></i>지연</span><span><i class="dot hold"></i>보류</span><span><i class="dot schedule"></i>일정</span></div>
   <div class="calendar-head"><a href="{{ url_for('task_calendar', year=previous.year, month=previous.month) }}">← 이전달</a><h2>{{ year }}년 {{ month }}월</h2><a href="{{ url_for('task_calendar', year=next_month.year, month=next_month.month) }}">다음달 →</a></div>
   <div class="calendar-grid weekdays"><div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div></div>
   <div class="calendar-grid days">
@@ -14,7 +15,6 @@
     </div>{% endfor %}{% endfor %}
   </div>
 </section>
-<div class="calendar-legend"><span><i class="dot progress"></i>진행중</span><span><i class="dot done"></i>완료</span><span><i class="dot delayed"></i>지연</span><span><i class="dot hold"></i>보류</span><span><i class="dot schedule"></i>일정</span></div>
 <section class="panel calendar-list-panel">
   <div class="panel-head"><div><h2>{{ year }}년 {{ month }}월 일정 목록</h2><p>달력에서 잘리지 않는 전체 일정 내용을 날짜순으로 확인합니다.</p></div><strong>{{ calendar_rows|length }}건</strong></div>
   <div class="table-wrap"><table><thead><tr><th>일자</th><th>구분</th><th>부서(팀)</th><th>일정 내용</th><th>담당자</th><th>상태/범위</th><th class="calendar-manage-column">관리</th></tr></thead><tbody>
