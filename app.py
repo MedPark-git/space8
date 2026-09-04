@@ -2592,10 +2592,15 @@ def create_app(test_config=None):
                     },
                 )
                 db.session.commit()
-                return redirect(url_for("meeting_detail", meeting_id=meeting.id))
+                flash(f"{meeting.document_label}을(를) 저장했습니다.", "success")
+                return redirect(url_for("meetings", open=meeting.id))
         candidate_tasks = meeting_candidate_tasks(current_user)
         meeting_rows = db.session.scalars(select(DailyMeeting).order_by(DailyMeeting.meeting_date.desc(), DailyMeeting.id.desc()).limit(50)).all()
         meeting_rows = [row for row in meeting_rows if can_view_meeting(row)]
+        open_meeting_id = request.args.get("open", type=int)
+        open_meeting = db.session.get(DailyMeeting, open_meeting_id) if open_meeting_id else None
+        if open_meeting and not can_view_meeting(open_meeting):
+            open_meeting = None
         return render_template(
             "meetings.html",
             mode="list",
@@ -2603,6 +2608,8 @@ def create_app(test_config=None):
             candidate_departments=sorted({task.department.name for task in candidate_tasks}),
             meetings=meeting_rows,
             staff=staff,
+            show_create_dialog=request.method == "POST",
+            open_meeting=open_meeting,
         )
 
     @app.get("/meetings/<int:meeting_id>")
@@ -2614,6 +2621,18 @@ def create_app(test_config=None):
         return render_template(
             "meetings.html",
             mode="detail",
+            meeting=meeting,
+            can_edit=can_edit_meeting(meeting),
+        )
+
+    @app.get("/meetings/<int:meeting_id>/preview")
+    @login_required
+    def meeting_preview(meeting_id):
+        meeting = db.get_or_404(DailyMeeting, meeting_id)
+        if not can_view_meeting(meeting):
+            abort(403)
+        return render_template(
+            "meeting_preview.html",
             meeting=meeting,
             can_edit=can_edit_meeting(meeting),
         )

@@ -103,6 +103,32 @@ class DailyMeetingDocumentTests(unittest.TestCase):
         self.assertIn('value="minutes"'.encode(), response.data)
         self.assertIn("일일 회의 아젠다".encode(), response.data)
         self.assertIn("일일 회의 회의록".encode(), response.data)
+        self.assertIn("일일회의 게시판".encode(), response.data)
+        self.assertIn(b'data-meeting-compose="agenda"', response.data)
+        self.assertIn(b'data-meeting-compose="minutes"', response.data)
+
+    def test_saved_documents_are_listed_as_board_rows_and_open_in_dialog(self):
+        meeting = DailyMeeting(
+            meeting_date=date(2026, 9, 4),
+            document_type="agenda",
+            title="게시판 아젠다",
+            agenda_content="부서별 보고",
+            author=self.admin,
+            reporter=self.admin,
+            creator=self.admin,
+            department=self.department,
+            attendees=[self.admin],
+            tasks=[self.task],
+        )
+        db.session.add(meeting)
+        db.session.commit()
+
+        response = self.client.get("/meetings")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("게시판 아젠다".encode(), response.data)
+        self.assertIn(f'data-meeting-preview="/meetings/{meeting.id}/preview"'.encode(), response.data)
+        self.assertIn(b'id="meeting-preview-dialog"', response.data)
+        self.assertIn("참석 1명 · 업무 1건".encode(), response.data)
 
     def test_agenda_can_be_created_without_related_task(self):
         response = self.client.post(
@@ -119,10 +145,13 @@ class DailyMeetingDocumentTests(unittest.TestCase):
         self.assertEqual(meeting.document_type, "agenda")
         self.assertEqual(meeting.agenda_content, "1. 채용 진행현황\n2. 자금 집행계획")
         self.assertEqual(meeting.tasks, [])
-        detail = self.client.get(response.headers["Location"])
+        self.assertEqual(response.headers["Location"], f"/meetings?open={meeting.id}")
+        board = self.client.get(response.headers["Location"])
+        self.assertIn(f'data-auto-preview="/meetings/{meeting.id}/preview"'.encode(), board.data)
+        detail = self.client.get(f"/meetings/{meeting.id}/preview")
         self.assertIn("아젠다 및 사전 공유사항".encode(), detail.data)
         self.assertIn(b"data-download-image", detail.data)
-        self.assertIn(b"window.print()", detail.data)
+        self.assertIn(b"data-print-meeting", detail.data)
         self.assertIn("Excel 양식 다운로드".encode(), detail.data)
         self.assertIn("A4 인쇄".encode(), detail.data)
         self.assertIn("PNG 이미지 저장".encode(), detail.data)
@@ -153,7 +182,7 @@ class DailyMeetingDocumentTests(unittest.TestCase):
         self.assertEqual(meeting.author, self.admin)
         self.assertEqual(meeting.reporter, self.admin)
         self.assertEqual(meeting.attendees, [self.admin])
-        detail = self.client.get(response.headers["Location"])
+        detail = self.client.get(f"/meetings/{meeting.id}/preview")
         self.assertIn("주요 논의사항".encode(), detail.data)
         self.assertIn("결정사항".encode(), detail.data)
         self.assertIn("후속 조치사항".encode(), detail.data)
@@ -317,6 +346,8 @@ class DailyMeetingDocumentTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertIn(b"downloadElementAsPng", response.data)
             self.assertIn(b'canvas.toBlob', response.data)
+            self.assertIn(b"initMeetingBoard", response.data)
+            self.assertIn(b"initMeetingPrint", response.data)
             self.assertNotIn(b"https://", response.data)
 
 

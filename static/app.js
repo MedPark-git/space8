@@ -15,6 +15,7 @@ const initDialogs = (root = document) => {
     dialog.addEventListener("click", (event) => {
       if (event.target === dialog) dialog.close();
     });
+    if (dialog.hasAttribute("data-open-on-load") && !dialog.open) dialog.showModal();
   });
 };
 
@@ -177,6 +178,14 @@ const initMeetingTaskFilters = (root = document) => {
     const search = filters.querySelector("[data-task-search]");
     const department = filters.querySelector("[data-task-department]");
     const status = filters.querySelector("[data-task-status]");
+    const taskChecks = [...rows.map((row) => row.querySelector("input[name='task_ids']")).filter(Boolean)];
+    const selectedCount = form?.querySelector("[data-meeting-selected-count]");
+    const clearButton = form?.querySelector("[data-meeting-clear-tasks]");
+    const updateSelectedCount = () => {
+      const count = taskChecks.filter((checkbox) => checkbox.checked).length;
+      if (selectedCount) selectedCount.textContent = String(count);
+      if (clearButton) clearButton.disabled = count === 0;
+    };
     const update = () => {
       const keyword = (search?.value || "").trim().toLocaleLowerCase("ko");
       let visibleCount = 0;
@@ -192,7 +201,88 @@ const initMeetingTaskFilters = (root = document) => {
     search?.addEventListener("input", update);
     department?.addEventListener("change", update);
     status?.addEventListener("change", update);
+    taskChecks.forEach((checkbox) => checkbox.addEventListener("change", updateSelectedCount));
+    clearButton?.addEventListener("click", () => {
+      taskChecks.forEach((checkbox) => {
+        checkbox.checked = false;
+      });
+      updateSelectedCount();
+    });
+    updateSelectedCount();
   });
+};
+
+const initMeetingCompose = (root = document) => {
+  const dialog = root.querySelector("#meeting-compose-dialog");
+  if (!dialog) return;
+  root.querySelectorAll("[data-meeting-compose]").forEach((button) => {
+    if (button.dataset.composeBound) return;
+    button.dataset.composeBound = "true";
+    button.addEventListener("click", () => {
+      const radio = dialog.querySelector(`input[name='document_type'][value='${button.dataset.meetingCompose}']`);
+      if (radio) {
+        radio.checked = true;
+        radio.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      if (!dialog.open) dialog.showModal();
+      dialog.querySelector("input[name='meeting_date']")?.focus();
+    });
+  });
+};
+
+const initMeetingPrint = (root = document) => {
+  root.querySelectorAll("[data-print-meeting]").forEach((button) => {
+    if (button.dataset.printBound) return;
+    button.dataset.printBound = "true";
+    button.addEventListener("click", () => {
+      const target = document.getElementById(button.dataset.printTarget || "");
+      if (!target) return;
+      const cleanup = () => {
+        document.body.classList.remove("meeting-modal-print");
+        target.classList.remove("meeting-print-target");
+      };
+      document.body.classList.add("meeting-modal-print");
+      target.classList.add("meeting-print-target");
+      window.addEventListener("afterprint", cleanup, { once: true });
+      window.print();
+      window.setTimeout(cleanup, 1000);
+    });
+  });
+};
+
+const initMeetingBoard = (root = document) => {
+  const dialog = root.querySelector("#meeting-preview-dialog");
+  const content = dialog?.querySelector("[data-meeting-preview-content]");
+  if (!dialog || !content || dialog.dataset.previewBound) return;
+  dialog.dataset.previewBound = "true";
+  const loadPreview = async (url) => {
+    content.innerHTML = '<div class="meeting-preview-loading"><p>문서를 불러오는 중입니다.</p></div>';
+    if (!dialog.open) dialog.showModal();
+    try {
+      const response = await fetch(url, {
+        credentials: "same-origin",
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      });
+      if (!response.ok) throw new Error(`문서 조회 실패: ${response.status}`);
+      content.innerHTML = await response.text();
+      initDialogs(content);
+      initMeetingImageDownload(content);
+      initMeetingPrint(content);
+    } catch (_error) {
+      content.innerHTML = '<div class="meeting-preview-error"><strong>문서를 불러오지 못했습니다.</strong><p>창을 닫고 다시 선택해 주세요.</p><button class="button ghost" type="button" data-close>닫기</button></div>';
+      initDialogs(content);
+    }
+  };
+  root.querySelectorAll("[data-meeting-preview]").forEach((button) => {
+    button.addEventListener("click", () => loadPreview(button.dataset.meetingPreview));
+  });
+  const autoPreview = dialog.dataset.autoPreview;
+  if (autoPreview) {
+    loadPreview(autoPreview);
+    const currentUrl = new URL(window.location.href);
+    currentUrl.searchParams.delete("open");
+    window.history.replaceState(null, "", currentUrl);
+  }
 };
 
 const copyComputedStyles = (source, clone) => {
@@ -281,6 +371,9 @@ document.addEventListener("DOMContentLoaded", () => {
   initEmployeeSearch();
   initMeetingDocumentForms();
   initMeetingTaskFilters();
+  initMeetingCompose();
+  initMeetingBoard();
+  initMeetingPrint();
   initMeetingImageDownload();
 
   setTimeout(() => document.querySelectorAll(".flash").forEach((item) => item.remove()), 6000);
