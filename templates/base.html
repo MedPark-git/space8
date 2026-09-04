@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block title %}경영사업본부 각 부서(팀) 업무 현황{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260904-meeting-board-dialogs') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260904-journal-board-privacy') }}">
 </head>
 <body class="{% block body_class %}{% endblock %}">
   {% if current_user.is_authenticated %}
@@ -40,6 +40,6 @@
     {% endwith %}
     {% block content %}{% endblock %}
   </main>
-  <script src="{{ url_for('static', filename='app.js', v='20260904-meeting-board-dialogs') }}" defer></script>
+  <script src="{{ url_for('static', filename='app.js', v='20260904-journal-board-privacy') }}" defer></script>
 </body>
 </html>

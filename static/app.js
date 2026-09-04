@@ -28,7 +28,7 @@ const initBulkJournal = (root = document) => {
   const majorButton = root.querySelector("[data-bulk-major]");
   const deleteButton = root.querySelector("[data-bulk-delete]");
   const actions = [
-    { button: bulkButton, permission: "journalSelectable", emptyLabel: "업무일지에 일괄 담기", selectedLabel: "업무일지에 담기" },
+    { button: bulkButton, permission: "journalSelectable", emptyLabel: "일일업무 일지에 일괄 담기", selectedLabel: "일일업무 일지에 담기" },
     { button: calendarButton, permission: "calendarSelectable", emptyLabel: "일정(캘린더) 등록", selectedLabel: "캘린더 등록" },
     { button: calendarRemoveButton, permission: "calendarRemovable", emptyLabel: "일정(캘린더) 삭제", selectedLabel: "캘린더 삭제" },
     { button: majorButton, permission: "majorSelectable", emptyLabel: "주요업무 등록", selectedLabel: "주요업무 등록" },
@@ -231,7 +231,7 @@ const initMeetingCompose = (root = document) => {
 };
 
 const initMeetingPrint = (root = document) => {
-  root.querySelectorAll("[data-print-meeting]").forEach((button) => {
+  root.querySelectorAll("[data-print-meeting], [data-print-journal]").forEach((button) => {
     if (button.dataset.printBound) return;
     button.dataset.printBound = "true";
     button.addEventListener("click", () => {
@@ -248,6 +248,128 @@ const initMeetingPrint = (root = document) => {
       window.setTimeout(cleanup, 1000);
     });
   });
+};
+
+const initJournalDocumentForms = (root = document) => {
+  root.querySelectorAll("[data-journal-document-form]").forEach((form) => {
+    if (form.dataset.journalBound) return;
+    form.dataset.journalBound = "true";
+    const radios = [...form.querySelectorAll("input[name='document_type']")];
+    const fieldGroups = [...form.querySelectorAll("[data-journal-fields]")];
+    const privacyNote = form.querySelector("[data-journal-privacy-note]");
+    const updateFields = () => {
+      const selectedType = radios.find((radio) => radio.checked)?.value || "major";
+      fieldGroups.forEach((group) => {
+        const active = group.dataset.journalFields === selectedType;
+        group.hidden = !active;
+        group.querySelectorAll("input, textarea, select").forEach((control) => {
+          control.disabled = !active;
+        });
+      });
+      radios.forEach((radio) => {
+        radio.closest(".journal-type-card")?.classList.toggle("active", radio.checked);
+      });
+      if (privacyNote) privacyNote.hidden = selectedType !== "daily";
+    };
+    radios.forEach((radio) => radio.addEventListener("change", updateFields));
+    updateFields();
+  });
+};
+
+const initJournalTaskPickers = (root = document) => {
+  root.querySelectorAll("[data-journal-task-picker]").forEach((picker) => {
+    if (picker.dataset.taskPickerBound) return;
+    picker.dataset.taskPickerBound = "true";
+    const rows = [...picker.querySelectorAll("[data-journal-task-row]")];
+    const search = picker.querySelector("[data-journal-task-search]");
+    const status = picker.querySelector("[data-journal-task-status]");
+    const empty = picker.querySelector("[data-journal-task-empty]");
+    const taskChecks = rows.map((row) => row.querySelector("input[name='task_ids']")).filter(Boolean);
+    const selectedCount = picker.querySelector("[data-journal-selected-count]");
+    const clearButton = picker.querySelector("[data-journal-clear-tasks]");
+    const updateSelectedCount = () => {
+      const count = taskChecks.filter((checkbox) => checkbox.checked).length;
+      if (selectedCount) selectedCount.textContent = String(count);
+      if (clearButton) clearButton.disabled = count === 0;
+    };
+    const updateRows = () => {
+      const keyword = (search?.value || "").trim().toLocaleLowerCase("ko");
+      let visibleCount = 0;
+      rows.forEach((row) => {
+        const visible = (!keyword || (row.dataset.searchText || "").toLocaleLowerCase("ko").includes(keyword))
+          && (!status?.value || row.dataset.status === status.value);
+        row.hidden = !visible;
+        if (visible) visibleCount += 1;
+      });
+      if (empty) empty.hidden = visibleCount > 0;
+    };
+    search?.addEventListener("input", updateRows);
+    status?.addEventListener("change", updateRows);
+    taskChecks.forEach((checkbox) => checkbox.addEventListener("change", updateSelectedCount));
+    clearButton?.addEventListener("click", () => {
+      taskChecks.forEach((checkbox) => {
+        checkbox.checked = false;
+      });
+      updateSelectedCount();
+    });
+    updateRows();
+    updateSelectedCount();
+  });
+};
+
+const initJournalCompose = (root = document) => {
+  const dialog = root.querySelector("#journal-compose-dialog");
+  if (!dialog) return;
+  root.querySelectorAll("[data-journal-compose]").forEach((button) => {
+    if (button.dataset.composeBound) return;
+    button.dataset.composeBound = "true";
+    button.addEventListener("click", () => {
+      const radio = dialog.querySelector(`input[name='document_type'][value='${button.dataset.journalCompose}']`);
+      if (radio) {
+        radio.checked = true;
+        radio.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      if (!dialog.open) dialog.showModal();
+      dialog.querySelector("input[name='work_date']")?.focus();
+    });
+  });
+};
+
+const initJournalBoard = (root = document) => {
+  const dialog = root.querySelector("#journal-preview-dialog");
+  const content = dialog?.querySelector("[data-journal-preview-content]");
+  if (!dialog || !content || dialog.dataset.previewBound) return;
+  dialog.dataset.previewBound = "true";
+  const loadPreview = async (url) => {
+    content.innerHTML = '<div class="meeting-preview-loading"><p>업무일지를 불러오는 중입니다.</p></div>';
+    if (!dialog.open) dialog.showModal();
+    try {
+      const response = await fetch(url, {
+        credentials: "same-origin",
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      });
+      if (!response.ok) throw new Error(`업무일지 조회 실패: ${response.status}`);
+      content.innerHTML = await response.text();
+      initDialogs(content);
+      initMeetingImageDownload(content);
+      initMeetingPrint(content);
+    } catch (_error) {
+      content.innerHTML = '<div class="meeting-preview-error"><strong>업무일지를 불러오지 못했습니다.</strong><p>열람 권한을 확인하거나 창을 닫고 다시 선택해 주세요.</p><button class="button ghost" type="button" data-close>닫기</button></div>';
+      initDialogs(content);
+    }
+  };
+  root.querySelectorAll("[data-journal-preview]").forEach((button) => {
+    if (button.dataset.previewBound) return;
+    button.dataset.previewBound = "true";
+    button.addEventListener("click", () => loadPreview(button.dataset.journalPreview));
+  });
+  const autoPreview = dialog.dataset.autoPreview;
+  if (autoPreview) {
+    loadPreview(autoPreview);
+    const currentUrl = new URL(window.location.href);
+    currentUrl.searchParams.delete("open");
+    window.history.replaceState(null, "", currentUrl);
+  }
 };
 
 const initMeetingBoard = (root = document) => {
@@ -375,6 +497,10 @@ document.addEventListener("DOMContentLoaded", () => {
   initMeetingBoard();
   initMeetingPrint();
   initMeetingImageDownload();
+  initJournalDocumentForms();
+  initJournalTaskPickers();
+  initJournalCompose();
+  initJournalBoard();
 
   setTimeout(() => document.querySelectorAll(".flash").forEach((item) => item.remove()), 6000);
 });

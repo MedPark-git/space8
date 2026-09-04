@@ -92,6 +92,10 @@ MEETING_DOCUMENT_TYPES = {
     "agenda": "일일 회의 아젠다",
     "minutes": "일일 회의 회의록",
 }
+JOURNAL_DOCUMENT_TYPES = {
+    "major": "주요 업무",
+    "daily": "일일업무 일지",
+}
 MEETING_TEMPLATE_FILES = {
     "agenda": "daily_meeting_agenda.xlsx",
     "minutes": "daily_meeting_minutes.xlsx",
@@ -211,6 +215,22 @@ daily_meeting_attendee = db.Table(
         "employee_id",
         db.Integer,
         db.ForeignKey("employees.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+)
+
+work_journal_document_item = db.Table(
+    "work_journal_document_items",
+    db.Column(
+        "journal_id",
+        db.Integer,
+        db.ForeignKey("work_journal_documents.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    db.Column(
+        "task_id",
+        db.Integer,
+        db.ForeignKey("tasks.id", ondelete="CASCADE"),
         primary_key=True,
     ),
 )
@@ -555,6 +575,39 @@ class WorkJournalItem(db.Model):
     )
 
 
+class WorkJournalDocument(db.Model):
+    __tablename__ = "work_journal_documents"
+    id = db.Column(db.Integer, primary_key=True)
+    work_date = db.Column(db.Date, nullable=False, index=True)
+    document_type = db.Column(db.String(20), nullable=False, default="daily", index=True)
+    title = db.Column(db.String(200), nullable=False, default="")
+    work_summary = db.Column(db.Text, nullable=True)
+    next_plan = db.Column(db.Text, nullable=True)
+    special_notes = db.Column(db.Text, nullable=True)
+    author_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False, index=True)
+    department_id = db.Column(db.Integer, db.ForeignKey("departments.id"), nullable=False, index=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    author = db.relationship("Employee")
+    department = db.relationship("Department")
+    tasks = db.relationship("Task", secondary=work_journal_document_item)
+    __table_args__ = (
+        UniqueConstraint(
+            "work_date",
+            "document_type",
+            "author_id",
+            name="uq_work_journal_document_date_type_author",
+        ),
+    )
+
+    @property
+    def document_label(self):
+        return JOURNAL_DOCUMENT_TYPES.get(
+            self.document_type,
+            JOURNAL_DOCUMENT_TYPES["daily"],
+        )
+
+
 class Schedule(db.Model):
     __tablename__ = "schedules"
     id = db.Column(db.Integer, primary_key=True)
@@ -726,6 +779,89 @@ def get_active_task_or_404(task_id):
 
 def can_write_department(department_id):
     return current_user.role.allows("task_manage_all") or department_id == current_user.department_id
+
+
+def can_view_daily_journal_author(author_id, department_id):
+    if current_user.id == author_id:
+        return True
+    if current_user.role.name == "부서장":
+        return True
+    return (
+        current_user.role.name == "팀장"
+        and current_user.department_id == department_id
+    )
+
+
+def can_view_work_journal(journal):
+    if journal.document_type == "daily":
+        return can_view_daily_journal_author(journal.author_id, journal.department_id)
+    return (
+        current_user.role.data_scope == "all"
+        or current_user.id == journal.author_id
+        or current_user.department_id == journal.department_id
+    )
+
+
+def can_edit_work_journal(journal):
+    return current_user.id == journal.author_id
+
+
+def journal_candidate_tasks(user, document_type):
+    query = select(Task).where(
+        Task.deleted_at.is_(None),
+        Task.assignee_id == user.id,
+    )
+    if document_type == "major":
+        query = (
+            query.join(TaskClassification)
+            .where(TaskClassification.name == "주요")
+            .distinct()
+        )
+    return db.session.scalars(query.order_by(Task.target_date, Task.id)).all()
+
+
+def default_journal_task_ids(user, document_type, work_date):
+    candidates = journal_candidate_tasks(user, document_type)
+    if document_type == "major":
+        return {
+            task.id
+            for task in candidates
+            if task.start_date <= work_date <= task.target_date
+        }
+    selected_ids = set(
+        db.session.scalars(
+            select(WorkJournalItem.task_id).where(
+                WorkJournalItem.employee_id == user.id,
+                WorkJournalItem.work_date == work_date,
+            )
+        ).all()
+    )
+    selected_ids.update(
+        task.id
+        for task in candidates
+        if task.start_date <= work_date <= task.target_date
+        and set(task.type_names).intersection({"주요", "일반"})
+    )
+    candidate_ids = {task.id for task in candidates}
+    return selected_ids.intersection(candidate_ids)
+
+
+def journal_logs_by_task(journal):
+    if not journal.tasks:
+        return {}
+    logs = db.session.scalars(
+        select(TaskDailyLog)
+        .where(
+            TaskDailyLog.task_id.in_([task.id for task in journal.tasks]),
+            TaskDailyLog.work_date == journal.work_date,
+            TaskDailyLog.author_id == journal.author_id,
+        )
+        .order_by(TaskDailyLog.created_at)
+    ).all()
+    grouped = {}
+    for log in logs:
+        grouped.setdefault(log.task_id, []).append(log)
+    return grouped
 
 
 def can_edit_meeting(meeting):
@@ -1415,7 +1551,7 @@ def seed_reference_data():
         db.session.flush()
         hard_reference_count = sum(
             db.session.scalar(select(func.count(model.id)).where(model.department_id == division.id)) or 0
-            for model in (Employee, Task, DailyMeeting)
+            for model in (Employee, Task, DailyMeeting, WorkJournalDocument)
         )
         if hard_reference_count:
             division.active = False
@@ -1566,6 +1702,7 @@ def create_app(test_config=None):
             "PASSWORD_MIN_LENGTH": PASSWORD_MIN_LENGTH,
             "REGISTRATION_PASSWORD_MIN_LENGTH": REGISTRATION_PASSWORD_MIN_LENGTH,
             "MEETING_DOCUMENT_TYPES": MEETING_DOCUMENT_TYPES,
+            "JOURNAL_DOCUMENT_TYPES": JOURNAL_DOCUMENT_TYPES,
             "today": date.today(),
         }
 
@@ -2276,11 +2413,17 @@ def create_app(test_config=None):
         status_logs = db.session.scalars(
             select(TaskStatusLog).where(TaskStatusLog.task_id == task.id).order_by(TaskStatusLog.changed_at.desc())
         ).all()
+        visible_daily_logs = [
+            log
+            for log in sorted(task.daily_logs, key=lambda item: item.created_at, reverse=True)
+            if can_view_daily_journal_author(log.author_id, log.author.department_id)
+        ]
         return render_template(
             "tasks.html",
             mode="detail",
             task=task,
             status_logs=status_logs,
+            visible_daily_logs=visible_daily_logs,
             can_edit=can_edit_task(task),
             can_delete=can_delete_task(task),
         )
@@ -2743,66 +2886,242 @@ def create_app(test_config=None):
             staff=staff,
         )
 
-    @app.get("/journals")
+    @app.route("/journals", methods=["GET", "POST"])
     @login_required
     def journals():
-        work_date = date.fromisoformat(request.args.get("work_date", date.today().isoformat()))
-        employee_id = request.args.get("employee_id", current_user.id, type=int)
-        if current_user.role.data_scope == "own":
-            employee_id = current_user.id
-        elif current_user.role.data_scope == "department":
-            employee = db.session.get(Employee, employee_id)
-            if not employee or employee.department_id != current_user.department_id:
-                employee_id = current_user.id
-        employee = db.get_or_404(Employee, employee_id)
-        logs = db.session.scalars(
-            select(TaskDailyLog)
-            .join(Task)
-            .where(TaskDailyLog.work_date == work_date, or_(Task.assignee_id == employee_id, TaskDailyLog.author_id == employee_id))
-            .order_by(TaskDailyLog.created_at)
-        ).all()
-        automatic_tasks = db.session.scalars(
-            select(Task)
-            .join(TaskClassification)
-            .where(
-                Task.deleted_at.is_(None),
-                Task.assignee_id == employee_id,
-                TaskClassification.name.in_(["주요", "일반"]),
-                Task.start_date <= work_date,
-                Task.target_date >= work_date,
+        if request.method == "POST":
+            document_type = request.form.get("document_type", "daily")
+            if document_type not in JOURNAL_DOCUMENT_TYPES:
+                abort(400)
+            try:
+                try:
+                    work_date = date.fromisoformat(
+                        request.form.get("work_date", date.today().isoformat())
+                    )
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("올바른 작성일을 입력해 주세요.") from exc
+                task_ids = {
+                    int(item)
+                    for item in request.form.getlist("task_ids")
+                    if item.isdigit()
+                }
+                candidates = journal_candidate_tasks(current_user, document_type)
+                candidate_by_id = {task.id: task for task in candidates}
+                if task_ids - candidate_by_id.keys():
+                    abort(403)
+                selected_tasks = [
+                    candidate_by_id[task_id]
+                    for task_id in sorted(
+                        task_ids,
+                        key=lambda task_id: (
+                            candidate_by_id[task_id].target_date,
+                            task_id,
+                        ),
+                    )
+                ]
+                title = request.form.get("title", "").strip()
+                work_summary = request.form.get("work_summary", "").strip()
+                next_plan = request.form.get("next_plan", "").strip()
+                special_notes = request.form.get("special_notes", "").strip()
+                if not selected_tasks and not any((work_summary, next_plan, special_notes)):
+                    raise ValueError("업무 또는 작성 내용을 한 건 이상 입력해 주세요.")
+                existing = db.session.scalar(
+                    select(WorkJournalDocument).where(
+                        WorkJournalDocument.work_date == work_date,
+                        WorkJournalDocument.document_type == document_type,
+                        WorkJournalDocument.author_id == current_user.id,
+                    )
+                )
+                if existing:
+                    flash(
+                        f"해당 날짜의 {existing.document_label}이(가) 이미 저장되어 있습니다. 기존 문서를 수정해 주세요.",
+                        "danger",
+                    )
+                    return redirect(url_for("journals", open=existing.id))
+            except ValueError as exc:
+                flash(str(exc), "danger")
+            else:
+                journal = WorkJournalDocument(
+                    work_date=work_date,
+                    document_type=document_type,
+                    title=title
+                    or f"{work_date.isoformat()} {current_user.name} {JOURNAL_DOCUMENT_TYPES[document_type]}",
+                    work_summary=work_summary or None,
+                    next_plan=next_plan or None,
+                    special_notes=special_notes or None,
+                    author=current_user,
+                    department=current_user.department,
+                    tasks=selected_tasks,
+                )
+                db.session.add(journal)
+                db.session.flush()
+                audit(
+                    "WORK_JOURNAL_DOCUMENT_CREATE",
+                    f"journal:{journal.id}",
+                    {
+                        "document_type": document_type,
+                        "work_date": work_date.isoformat(),
+                        "task_ids": [task.id for task in selected_tasks],
+                    },
+                )
+                db.session.commit()
+                flash(f"{journal.document_label}을(를) 저장했습니다.", "success")
+                return redirect(url_for("journals", open=journal.id))
+
+        selected_type = request.args.get("document_type", "")
+        if selected_type not in JOURNAL_DOCUMENT_TYPES:
+            selected_type = ""
+        journal_rows = db.session.scalars(
+            select(WorkJournalDocument)
+            .order_by(
+                WorkJournalDocument.work_date.desc(),
+                WorkJournalDocument.id.desc(),
             )
-            .distinct()
-            .order_by(Task.target_date)
+            .limit(100)
         ).all()
-        selected_tasks = db.session.scalars(
-            select(Task)
-            .join(WorkJournalItem, WorkJournalItem.task_id == Task.id)
-            .where(
-                Task.deleted_at.is_(None),
-                WorkJournalItem.work_date == work_date,
-                WorkJournalItem.employee_id == employee_id,
-            )
-            .order_by(Task.target_date, Task.id)
-        ).all()
-        tasks_by_id = {task.id: task for task in automatic_tasks}
-        tasks_by_id.update({task.id: task for task in selected_tasks})
-        tasks = sorted(tasks_by_id.values(), key=lambda task: (task.target_date, task.id))
-        employees_query = select(Employee).where(
-            Employee.status == "재직", Employee.approval_status == "승인완료"
+        journal_rows = [
+            journal
+            for journal in journal_rows
+            if can_view_work_journal(journal)
+            and (not selected_type or journal.document_type == selected_type)
+        ]
+        open_journal_id = request.args.get("open", type=int)
+        open_journal = (
+            db.session.get(WorkJournalDocument, open_journal_id)
+            if open_journal_id
+            else None
         )
-        if current_user.role.data_scope == "department":
-            employees_query = employees_query.where(Employee.department_id == current_user.department_id)
-        elif current_user.role.data_scope == "own":
-            employees_query = employees_query.where(Employee.id == current_user.id)
-        employees = db.session.scalars(employees_query.order_by(Employee.name)).all()
-        return render_template("journals.html", work_date=work_date, employee=employee, employees=employees, tasks=tasks, logs=logs)
+        if open_journal and not can_view_work_journal(open_journal):
+            open_journal = None
+        major_tasks = journal_candidate_tasks(current_user, "major")
+        daily_tasks = journal_candidate_tasks(current_user, "daily")
+        return render_template(
+            "journals.html",
+            mode="list",
+            journals=journal_rows,
+            selected_type=selected_type,
+            open_journal=open_journal,
+            show_create_dialog=request.method == "POST",
+            major_tasks=major_tasks,
+            daily_tasks=daily_tasks,
+            default_major_task_ids=default_journal_task_ids(
+                current_user,
+                "major",
+                date.today(),
+            ),
+            default_daily_task_ids=default_journal_task_ids(
+                current_user,
+                "daily",
+                date.today(),
+            ),
+        )
+
+    @app.get("/journals/<int:journal_id>")
+    @login_required
+    def journal_detail(journal_id):
+        journal = db.get_or_404(WorkJournalDocument, journal_id)
+        if not can_view_work_journal(journal):
+            abort(403)
+        return render_template(
+            "journals.html",
+            mode="detail",
+            journal=journal,
+            logs_by_task=journal_logs_by_task(journal),
+            can_edit=can_edit_work_journal(journal),
+        )
+
+    @app.get("/journals/<int:journal_id>/preview")
+    @login_required
+    def journal_preview(journal_id):
+        journal = db.get_or_404(WorkJournalDocument, journal_id)
+        if not can_view_work_journal(journal):
+            abort(403)
+        return render_template(
+            "journal_preview.html",
+            journal=journal,
+            logs_by_task=journal_logs_by_task(journal),
+            can_edit=can_edit_work_journal(journal),
+        )
+
+    @app.route("/journals/<int:journal_id>/edit", methods=["GET", "POST"])
+    @login_required
+    def journal_edit(journal_id):
+        journal = db.get_or_404(WorkJournalDocument, journal_id)
+        if not can_edit_work_journal(journal):
+            abort(403)
+        candidate_tasks = journal_candidate_tasks(current_user, journal.document_type)
+        candidate_by_id = {task.id: task for task in candidate_tasks}
+        if request.method == "POST":
+            try:
+                try:
+                    work_date = date.fromisoformat(request.form.get("work_date", ""))
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("올바른 작성일을 입력해 주세요.") from exc
+                task_ids = {
+                    int(item)
+                    for item in request.form.getlist("task_ids")
+                    if item.isdigit()
+                }
+                if task_ids - candidate_by_id.keys():
+                    abort(403)
+                duplicate = db.session.scalar(
+                    select(WorkJournalDocument).where(
+                        WorkJournalDocument.id != journal.id,
+                        WorkJournalDocument.work_date == work_date,
+                        WorkJournalDocument.document_type == journal.document_type,
+                        WorkJournalDocument.author_id == current_user.id,
+                    )
+                )
+                if duplicate:
+                    raise ValueError(
+                        f"해당 날짜의 {journal.document_label}이(가) 이미 저장되어 있습니다."
+                    )
+                title = request.form.get("title", "").strip()
+                work_summary = request.form.get("work_summary", "").strip()
+                next_plan = request.form.get("next_plan", "").strip()
+                special_notes = request.form.get("special_notes", "").strip()
+                if not task_ids and not any((work_summary, next_plan, special_notes)):
+                    raise ValueError("업무 또는 작성 내용을 한 건 이상 입력해 주세요.")
+            except ValueError as exc:
+                flash(str(exc), "danger")
+            else:
+                journal.work_date = work_date
+                journal.title = title or f"{work_date.isoformat()} {current_user.name} {journal.document_label}"
+                journal.work_summary = work_summary or None
+                journal.next_plan = next_plan or None
+                journal.special_notes = special_notes or None
+                journal.tasks = [
+                    candidate_by_id[task_id]
+                    for task_id in sorted(
+                        task_ids,
+                        key=lambda task_id: (
+                            candidate_by_id[task_id].target_date,
+                            task_id,
+                        ),
+                    )
+                ]
+                audit(
+                    "WORK_JOURNAL_DOCUMENT_UPDATE",
+                    f"journal:{journal.id}",
+                    {"work_date": work_date.isoformat(), "task_ids": sorted(task_ids)},
+                )
+                db.session.commit()
+                flash(f"{journal.document_label}을(를) 수정했습니다.", "success")
+                return redirect(url_for("journal_detail", journal_id=journal.id))
+        return render_template(
+            "journals.html",
+            mode="edit",
+            journal=journal,
+            candidate_tasks=candidate_tasks,
+            selected_task_ids={task.id for task in journal.tasks},
+        )
 
     @app.post("/journals/add-tasks")
     @login_required
     def journal_add_tasks():
         task_ids = {int(item) for item in request.form.getlist("task_ids") if item.isdigit()}
         if not task_ids:
-            flash("업무일지에 담을 업무를 선택해 주세요.", "danger")
+            flash("일일업무 일지에 담을 업무를 선택해 주세요.", "danger")
             return redirect(url_for("task_list"))
         work_date = date.fromisoformat(request.form.get("work_date", date.today().isoformat()))
         selected_tasks = db.session.scalars(
@@ -2842,7 +3161,7 @@ def create_app(test_config=None):
         )
         db.session.commit()
         flash(
-            f"선택한 업무 {len(task_ids)}건 중 {created}건을 담당자별 {work_date} 업무일지에 담았습니다.",
+            f"선택한 업무 {len(task_ids)}건 중 {created}건을 담당자별 {work_date} 일일업무 일지에 담았습니다.",
             "success",
         )
         return_to = request.form.get("return_to", "")
