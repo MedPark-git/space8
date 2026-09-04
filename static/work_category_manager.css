@@ -1,0 +1,143 @@
+.work-category-form .category-manager-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: -2px 0 4px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #dbe5f4;
+}
+
+.work-category-form .category-manager-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.work-category-form .category-manager-copy strong {
+  font-size: 14px;
+  color: #20304a;
+}
+
+.work-category-form .category-manager-copy small {
+  color: #71809a;
+  line-height: 1.45;
+}
+
+.category-manager-trigger {
+  white-space: nowrap;
+}
+
+.work-category-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-width: 560px;
+  border: 0;
+  border-radius: 18px;
+  padding: 0;
+  box-shadow: 0 24px 70px rgba(25, 43, 72, 0.24);
+}
+
+.work-category-dialog::backdrop {
+  background: rgba(19, 32, 54, 0.42);
+}
+
+.work-category-dialog-card {
+  padding: 24px;
+  background: #fff;
+}
+
+.work-category-dialog-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.work-category-dialog-head h2 {
+  margin: 3px 0 5px;
+  font-size: 21px;
+}
+
+.work-category-dialog-head p {
+  margin: 0;
+  color: #6b7890;
+  line-height: 1.5;
+}
+
+.work-category-dialog-close {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  color: #607089;
+}
+
+.work-category-create-form {
+  display: grid;
+  gap: 14px;
+}
+
+.work-category-create-form label {
+  display: grid;
+  gap: 7px;
+  font-weight: 700;
+  color: #34445f;
+}
+
+.work-category-create-form input,
+.work-category-create-form select {
+  width: 100%;
+}
+
+.work-category-fixed-department {
+  padding: 12px 14px;
+  border: 1px solid #d8e3f2;
+  border-radius: 10px;
+  background: #f7faff;
+  color: #1e4fa3;
+  font-weight: 800;
+}
+
+.work-category-form-note {
+  margin: 0;
+  color: #71809a;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.work-category-create-status {
+  min-height: 20px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.work-category-create-status.success {
+  color: #176b43;
+}
+
+.work-category-create-status.error {
+  color: #b42318;
+}
+
+.work-category-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+@media (max-width: 720px) {
+  .work-category-form .category-manager-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .category-manager-trigger {
+    width: 100%;
+  }
+}
