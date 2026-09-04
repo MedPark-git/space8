@@ -127,7 +127,8 @@
     <label>담당자<select name="assignee_id" required>{% for item in employees %}<option value="{{ item.id }}" {{ 'selected' if (task and task.assignee_id == item.id) or (not task and current_user.id == item.id) }}>{{ item.name }} · {{ item.department.name }}</option>{% endfor %}</select></label>
     <label>착수일<input type="date" name="start_date" required value="{{ task.start_date.isoformat() if task else today.isoformat() }}"></label><label>목표일<input type="date" name="target_date" required value="{{ task.target_date.isoformat() if task else today.isoformat() }}"></label>
     <label>상태<select name="status">{% for item in TASK_STATUSES %}<option {{ 'selected' if task and task.status == item }}>{{ item }}</option>{% endfor %}</select></label><label>진행률 (%)<input type="number" name="progress" min="0" max="100" value="{{ task.progress if task else 0 }}"></label>
-    <label>반복주기<select name="repeat_cycle">{% for item in REPEAT_CYCLES %}<option {{ 'selected' if task and task.repeat_cycle == item }}>{{ item }}</option>{% endfor %}</select></label><label>반복 상세<input name="repeat_detail" value="{{ task.repeat_detail if task else '' }}" placeholder="예: 매주 금요일"></label>
+    <label>반복주기<select name="repeat_cycle">{% for item in REPEAT_CYCLES %}<option value="{{ item }}" {{ 'selected' if task and task.repeat_cycle == item }}>{{ REPEAT_CYCLE_LABELS[item] }}</option>{% endfor %}</select></label><label>반복 상세<input name="repeat_detail" value="{{ task.repeat_detail if task else '' }}" placeholder="예: 매주 금요일"></label>
+    <small class="span-2 form-help recurrence-help">매주 1회·매월 1회·분기 1회·반기 1회·매년 1회는 다음 주기 시작일에 새 업무로 자동 생성됩니다.</small>
   </div><div class="form-actions"><a class="button ghost" href="{{ url_for('task_list') }}">취소</a><button class="button primary" type="submit">저장</button></div>
 </form>
 

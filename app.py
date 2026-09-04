@@ -42,6 +42,24 @@ TASK_TYPES = ("대표이사님 수명업무", "루틴", "일반", "주요")
 CALENDAR_AUTO_TASK_TYPES = ("대표이사님 수명업무", "주요")
 TASK_STATUSES = ("진행중", "완료", "지연", "보류")
 REPEAT_CYCLES = ("없음", "일간", "주간", "월간", "분기", "반기", "연간", "상시")
+REPEAT_CYCLE_LABELS = {
+    "없음": "없음",
+    "일간": "매일",
+    "주간": "매주 1회",
+    "월간": "매월 1회",
+    "분기": "분기 1회",
+    "반기": "반기 1회",
+    "연간": "매년 1회",
+    "상시": "상시",
+}
+AUTOMATIC_REPEAT_CYCLES = {
+    "주간": {"days": 7},
+    "월간": {"months": 1},
+    "분기": {"months": 3},
+    "반기": {"months": 6},
+    "연간": {"months": 12},
+}
+MAX_RECURRENCE_CATCH_UP = 520
 STATUS_CLASS = {"진행중": "progress", "완료": "done", "지연": "delayed", "보류": "hold"}
 WORK_CADENCES = (
     {"key": "daily", "label": "매일", "cycle": "일간", "aliases": ("일", "일간", "매일")},
@@ -266,6 +284,13 @@ class Board(db.Model):
 
 class Task(db.Model):
     __tablename__ = "tasks"
+    __table_args__ = (
+        UniqueConstraint(
+            "recurrence_root_id",
+            "recurrence_sequence",
+            name="uq_task_recurrence_sequence",
+        ),
+    )
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(250), nullable=False)
     content = db.Column(db.Text, nullable=True)
@@ -279,6 +304,18 @@ class Task(db.Model):
     progress = db.Column(db.Integer, nullable=False, default=0)
     repeat_cycle = db.Column(db.String(20), nullable=False, default="없음")
     repeat_detail = db.Column(db.String(100), nullable=True)
+    recurrence_root_id = db.Column(
+        db.Integer,
+        db.ForeignKey("tasks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    recurrence_sequence = db.Column(
+        db.Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
     calendar_selected = db.Column(db.Boolean, nullable=False, default=False, server_default=text("false"))
     calendar_excluded = db.Column(db.Boolean, nullable=False, default=False, server_default=text("false"))
     calendar_registered_by_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True)
@@ -302,6 +339,7 @@ class Task(db.Model):
         "Employee", foreign_keys=[calendar_registered_by_id], backref="calendar_registered_tasks"
     )
     deleted_by = db.relationship("Employee", foreign_keys=[deleted_by_id])
+    recurrence_root = db.relationship("Task", remote_side=[id], foreign_keys=[recurrence_root_id])
     classifications = db.relationship("TaskClassification", cascade="all, delete-orphan", backref="task")
     daily_logs = db.relationship("TaskDailyLog", cascade="all, delete-orphan", backref="task")
 
@@ -360,7 +398,7 @@ class Task(db.Model):
 
     @property
     def is_source_import(self):
-        return bool(self.source_ref)
+        return bool(self.source_ref or self.source_name)
 
     @property
     def dashboard_hidden(self):
@@ -745,6 +783,155 @@ def build_cadence_summaries(tasks):
     ]
 
 
+def advance_recurrence_date(anchor_date, repeat_cycle, sequence=1):
+    """Return a recurrence date without drifting after a short month."""
+    recurrence = AUTOMATIC_REPEAT_CYCLES.get(repeat_cycle, {})
+    days = recurrence.get("days")
+    if days:
+        return anchor_date + timedelta(days=days * sequence)
+    months = recurrence.get("months")
+    if not months:
+        raise ValueError(f"자동 생성 대상이 아닌 반복주기입니다: {repeat_cycle}")
+    month_index = anchor_date.year * 12 + anchor_date.month - 1 + months * sequence
+    year, zero_based_month = divmod(month_index, 12)
+    month = zero_based_month + 1
+    day = min(anchor_date.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def latest_recurrence_sequence(root_task_id):
+    return db.session.scalar(
+        select(func.coalesce(func.max(Task.recurrence_sequence), 0)).where(
+            or_(Task.id == root_task_id, Task.recurrence_root_id == root_task_id)
+        )
+    ) or 0
+
+
+def generate_due_recurring_tasks(as_of_date=None):
+    """Create each due weekly/monthly/quarterly/semiannual/yearly occurrence once."""
+    as_of_date = as_of_date or date.today()
+    root_query = select(Task).where(
+        Task.deleted_at.is_(None),
+        Task.recurrence_root_id.is_(None),
+        Task.repeat_cycle.in_(tuple(AUTOMATIC_REPEAT_CYCLES)),
+    )
+    roots = db.session.scalars(root_query.order_by(Task.id)).all()
+
+    due_exists = any(
+        advance_recurrence_date(
+            root.start_date,
+            root.repeat_cycle,
+            latest_recurrence_sequence(root.id) + 1,
+        )
+        <= as_of_date
+        for root in roots
+    )
+    if not due_exists:
+        return []
+
+    locked = False
+    try:
+        if db.session.get_bind().dialect.name == "postgresql":
+            db.session.execute(text("SELECT pg_advisory_xact_lock(2026090402)"))
+            locked = True
+
+        created_ids = []
+        roots = db.session.scalars(root_query.order_by(Task.id)).all()
+        for root in roots:
+            sequence = latest_recurrence_sequence(root.id)
+            for _ in range(MAX_RECURRENCE_CATCH_UP):
+                next_sequence = sequence + 1
+                next_start_date = advance_recurrence_date(
+                    root.start_date,
+                    root.repeat_cycle,
+                    next_sequence,
+                )
+                if next_start_date > as_of_date:
+                    break
+
+                existing = db.session.scalar(
+                    select(Task).where(
+                        Task.recurrence_root_id == root.id,
+                        Task.recurrence_sequence == next_sequence,
+                    )
+                )
+                if existing:
+                    sequence = next_sequence
+                    continue
+
+                next_target_date = advance_recurrence_date(
+                    root.target_date,
+                    root.repeat_cycle,
+                    next_sequence,
+                )
+                occurrence = Task(
+                    title=root.title,
+                    content=root.content,
+                    work_process=root.work_process,
+                    department_id=root.department_id,
+                    assignee_id=root.assignee_id,
+                    start_date=next_start_date,
+                    target_date=max(next_start_date, next_target_date),
+                    completed_date=None,
+                    status="진행중",
+                    progress=0,
+                    repeat_cycle=root.repeat_cycle,
+                    repeat_detail=root.repeat_detail,
+                    recurrence_root_id=root.id,
+                    recurrence_sequence=next_sequence,
+                    calendar_selected=root.calendar_selected,
+                    calendar_excluded=root.calendar_excluded,
+                    calendar_registered_by_id=root.calendar_registered_by_id,
+                    source_ref=None,
+                    source_name=root.source_name,
+                    source_sheet=root.source_sheet,
+                    source_category=root.source_category,
+                    source_detail=root.source_detail,
+                    source_content=root.source_content,
+                    source_assignees=root.source_assignees,
+                    source_frequency=root.source_frequency,
+                    created_by_id=root.created_by_id,
+                )
+                occurrence.classifications = [
+                    TaskClassification(name=classification.name)
+                    for classification in root.classifications
+                ]
+                db.session.add(occurrence)
+                db.session.flush()
+                db.session.add(
+                    TaskStatusLog(
+                        task_id=occurrence.id,
+                        previous_status=None,
+                        new_status="진행중",
+                        changed_by_id=None,
+                    )
+                )
+                db.session.add(
+                    AuditLog(
+                        user_id=None,
+                        action="TASK_RECURRENCE_CREATE",
+                        target=f"task:{occurrence.id}",
+                        details={
+                            "root_task_id": root.id,
+                            "repeat_cycle": root.repeat_cycle,
+                            "recurrence_sequence": next_sequence,
+                            "start_date": next_start_date.isoformat(),
+                            "target_date": occurrence.target_date.isoformat(),
+                        },
+                        ip_address=None,
+                    )
+                )
+                created_ids.append(occurrence.id)
+                sequence = next_sequence
+
+        if created_ids or locked:
+            db.session.commit()
+        return created_ids
+    except Exception:
+        db.session.rollback()
+        raise
+
+
 def refresh_overdue_tasks():
     overdue = db.session.scalars(
         select(Task).where(
@@ -836,7 +1023,10 @@ def import_security_it_tasks():
         created_count += 1
 
     imported_count = db.session.scalar(
-        select(func.count(Task.id)).where(Task.source_name == "경영_보안전산팀 업무분장_260902.xlsx")
+        select(func.count(Task.id)).where(
+            Task.source_name == "경영_보안전산팀 업무분장_260902.xlsx",
+            Task.recurrence_root_id.is_(None),
+        )
     ) or 0
     final_count = imported_count
     if final_count != payload["expected_count"]:
@@ -1045,6 +1235,7 @@ def run_startup_tasks(app):
                 db.session.commit()
             upgrade(directory=os.path.join(app.root_path, "migrations"))
             seed_reference_data()
+            generate_due_recurring_tasks()
         finally:
             if uri.startswith("postgresql"):
                 try:
@@ -1086,6 +1277,7 @@ def create_app(test_config=None):
                 return redirect(url_for("login"))
             if current_user.must_change_password and request.endpoint not in {"change_password", "logout", "static"}:
                 return redirect(url_for("change_password"))
+            generate_due_recurring_tasks()
             refresh_overdue_tasks()
 
     @app.context_processor
@@ -1103,6 +1295,7 @@ def create_app(test_config=None):
             "TASK_TYPES": TASK_TYPES,
             "TASK_STATUSES": TASK_STATUSES,
             "REPEAT_CYCLES": REPEAT_CYCLES,
+            "REPEAT_CYCLE_LABELS": REPEAT_CYCLE_LABELS,
             "STATUS_CLASS": STATUS_CLASS,
             "PASSWORD_MIN_LENGTH": PASSWORD_MIN_LENGTH,
             "REGISTRATION_PASSWORD_MIN_LENGTH": REGISTRATION_PASSWORD_MIN_LENGTH,
@@ -1134,7 +1327,8 @@ def create_app(test_config=None):
             import_ready = (
                 db.session.scalar(
                     select(func.count(Task.id)).where(
-                        Task.source_name == "경영_보안전산팀 업무분장_260902.xlsx"
+                        Task.source_name == "경영_보안전산팀 업무분장_260902.xlsx",
+                        Task.recurrence_root_id.is_(None),
                     )
                 )
                 == 116
