@@ -41,5 +41,30 @@
     {% block content %}{% endblock %}
   </main>
   <script src="{{ url_for('static', filename='app.js', v='20260904-work-category-hierarchy') }}" defer></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      if (!window.location.pathname.startsWith('/tasks')) return;
+
+      document.querySelectorAll('label').forEach(function (label) {
+        label.childNodes.forEach(function (node) {
+          if (node.nodeType === Node.TEXT_NODE && node.nodeValue.includes('업무 제목')) {
+            node.nodeValue = node.nodeValue.replace('업무 제목', '업무명');
+          }
+        });
+      });
+
+      document.querySelectorAll('input[placeholder="제목·내용·업무구분"]').forEach(function (input) {
+        input.setAttribute('placeholder', '업무명·내용·업무구분');
+      });
+
+      document.querySelectorAll('.excel-register-guide span').forEach(function (item) {
+        if (item.textContent.trim() === '제목') item.textContent = '업무명';
+      });
+
+      document.querySelectorAll('table thead th').forEach(function (header) {
+        if (header.textContent.trim() === '업무') header.textContent = '업무명';
+      });
+    });
+  </script>
 </body>
 </html>
