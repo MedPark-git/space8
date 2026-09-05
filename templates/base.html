@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260904-work-category-hierarchy') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='work_category_manager.css', v='20260905-department-category-manager') }}">
 </head>
-<body class="{% block body_class %}{% endblock %}"{% if current_user.is_authenticated %} data-current-department-id="{{ current_user.department_id }}" data-current-role="{{ current_user.role.name }}"{% endif %}>
+<body class="{% block body_class %}{% endblock %}"{% if current_user.is_authenticated %} data-current-department-id="{{ current_user.department_id }}" data-current-role="{{ current_user.role.name }}" data-effective-admin="{{ 'true' if (current_user.role.name in ['관리자', '시스템관리자'] or '관리자' in current_user.role.name or current_user.role.allows('admin') or current_user.role.allows('task_manage_all')) else 'false' }}"{% endif %}>
   {% if current_user.is_authenticated %}
   <header class="topbar">
     <a class="brand" href="{{ url_for('dashboard') }}">
@@ -44,6 +44,7 @@
   <script src="{{ url_for('static', filename='app.js', v='20260904-work-category-hierarchy') }}" defer></script>
   <script src="{{ url_for('static', filename='work_category_manager.js', v='20260905-department-category-manager') }}" defer></script>
   <script src="{{ url_for('static', filename='document_task_linker.js', v='20260905-document-task-linker-v2') }}" defer></script>
+  <script src="{{ url_for('static', filename='admin_bulk_document_delete.js', v='20260905-admin-bulk-delete-v3') }}" defer></script>
   <script>
     document.addEventListener('DOMContentLoaded', function () {
       if (!window.location.pathname.startsWith('/tasks')) return;
