@@ -5,10 +5,15 @@ from flask_login import current_user, login_required
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app import Department, WorkCategory, app, audit, db
+import app as core_app
+from app import Department, Task, WorkCategory, app, audit, db
 
 
 CATEGORY_DEPTH = 3
+_ORIGINAL_JOURNAL_CANDIDATE_TASKS = core_app.journal_candidate_tasks
+_ORIGINAL_DEFAULT_JOURNAL_TASK_IDS = core_app.default_journal_task_ids
+_ORIGINAL_CAN_VIEW_MEETING = core_app.can_view_meeting
+_ORIGINAL_CAN_VIEW_WORK_JOURNAL = core_app.can_view_work_journal
 
 
 def _is_ajax_request():
@@ -46,6 +51,113 @@ def _category_error(message, status_code=400):
         return jsonify({"ok": False, "message": message}), status_code
     flash(message, "error")
     return redirect(_safe_return_to(request.form.get("return_to")))
+
+
+def _normalize_task_identity_value(value):
+    return " ".join(str(value or "").split()).strip().casefold()
+
+
+def _request_selected_task_ids(explicit_ids=None):
+    selected_ids = set()
+    values = explicit_ids if explicit_ids is not None else request.values.getlist("task_ids")
+    for value in values or []:
+        try:
+            selected_ids.add(int(value))
+        except (TypeError, ValueError):
+            continue
+    return selected_ids
+
+
+def _task_document_identity(task):
+    """Return the business-level identity used only for document task pickers.
+
+    Production task storage remains unchanged.  This identity deliberately mirrors the
+    current three-level hierarchy: department(team) -> middle -> small -> task name.
+    It is isolated here so a future fourth category level can be added without changing
+    meeting/journal persistence.
+    """
+    return (
+        task.department_id,
+        _normalize_task_identity_value(task.middle_category_name),
+        _normalize_task_identity_value(task.small_category_name),
+        _normalize_task_identity_value(task.title),
+    )
+
+
+def _deduplicate_document_tasks(tasks, selected_ids=None):
+    selected_ids = _request_selected_task_ids(selected_ids)
+    selected_by_identity = {}
+    first_by_identity = {}
+
+    for task in tasks:
+        identity = _task_document_identity(task)
+        first_by_identity.setdefault(identity, task)
+        if task.id in selected_ids:
+            selected_by_identity.setdefault(identity, task)
+
+    representatives = [
+        selected_by_identity.get(identity, task)
+        for identity, task in first_by_identity.items()
+    ]
+    return sorted(
+        representatives,
+        key=lambda task: (
+            task.department.name,
+            task.middle_category_name or "",
+            task.small_category_name or "",
+            task.title,
+            task.id,
+        ),
+    )
+
+
+def _all_registered_document_tasks(selected_ids=None):
+    tasks = db.session.scalars(
+        select(Task)
+        .where(Task.deleted_at.is_(None))
+        .order_by(Task.id.asc())
+    ).all()
+    return _deduplicate_document_tasks(tasks, selected_ids)
+
+
+def global_meeting_candidate_tasks(user, selected_task_ids=None):
+    """Daily meeting documents may reference registered tasks from every department."""
+    return _all_registered_document_tasks(selected_task_ids)
+
+
+def global_major_journal_candidate_tasks(user, document_type):
+    """Major-work documents are company-wide; daily journals stay personal/scoped."""
+    if document_type == "major":
+        return _all_registered_document_tasks()
+    return _ORIGINAL_JOURNAL_CANDIDATE_TASKS(user, document_type)
+
+
+def document_default_journal_task_ids(user, document_type, work_date):
+    """Major-work compose starts empty; daily journal keeps its existing defaults."""
+    if document_type == "major":
+        return set()
+    return _ORIGINAL_DEFAULT_JOURNAL_TASK_IDS(user, document_type, work_date)
+
+
+def global_daily_meeting_visibility(meeting):
+    """Daily meeting agenda/minutes are management-wide documents."""
+    return True
+
+
+def global_major_work_visibility(journal):
+    """Major-work documents are shared; daily work journals keep private rules."""
+    if journal.document_type == "major":
+        return True
+    return _ORIGINAL_CAN_VIEW_WORK_JOURNAL(journal)
+
+
+# Patch only the document-selection/view helpers. Task CRUD and daily-journal privacy
+# remain untouched. Route functions in app.py resolve these globals at request time.
+core_app.meeting_candidate_tasks = global_meeting_candidate_tasks
+core_app.journal_candidate_tasks = global_major_journal_candidate_tasks
+core_app.default_journal_task_ids = document_default_journal_task_ids
+core_app.can_view_meeting = global_daily_meeting_visibility
+core_app.can_view_work_journal = global_major_work_visibility
 
 
 @app.post("/tasks/work-categories/add")
