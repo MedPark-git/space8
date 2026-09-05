@@ -35,13 +35,14 @@
 {% block content %}
 {% if mode == 'list' %}
 {% set form_type = request.form.get('document_type', 'daily') %}
+{% set is_admin_user = current_user.role.name in ['관리자', '시스템관리자'] or '관리자' in current_user.role.name or current_user.role.allows('admin') or current_user.role.allows('task_manage_all') %}
 <div class="page-heading"><div><span class="eyebrow">WORK JOURNAL</span><h1>업무일지 게시판</h1><p>주요 업무와 일일업무 일지를 분리해 작성하고 저장된 문서를 확인합니다.</p></div><div class="button-row"><button class="button major" type="button" data-journal-compose="major">주요 업무 작성</button><button class="button primary" type="button" data-journal-compose="daily">일일업무 일지 작성</button></div></div>
 
 <nav class="journal-board-tabs" aria-label="업무일지 문서 구분"><a class="{{ 'active' if not selected_type }}" href="{{ url_for('journals') }}">전체</a><a class="{{ 'active' if selected_type == 'major' }}" href="{{ url_for('journals', document_type='major') }}">주요 업무</a><a class="{{ 'active' if selected_type == 'daily' }}" href="{{ url_for('journals', document_type='daily') }}">일일업무 일지</a></nav>
 
 <section class="panel meeting-board-panel journal-board-panel">
   <div class="panel-head"><div><h2>저장된 업무일지</h2><p>문서 제목을 선택하면 상세 내용을 팝업으로 확인할 수 있습니다.</p></div><strong>{{ journals|length }}건</strong></div>
-  <div class="table-wrap"><table class="meeting-board-table journal-board-table"><thead><tr><th>No.</th><th>문서구분</th><th>작성일</th><th>제목</th><th>부서(팀)</th><th>작성자</th><th>업무</th><th>등록일</th></tr></thead><tbody>{% for item in journals %}<tr><td>{{ loop.index }}</td><td><span class="journal-document-badge {{ item.document_type }}">{{ item.document_label }}</span></td><td>{{ item.work_date }}</td><td><button class="meeting-board-open" type="button" data-journal-preview="{{ url_for('journal_preview', journal_id=item.id) }}" aria-haspopup="dialog"><strong>{{ item.title }}</strong><small>상세보기</small></button></td><td>{{ item.department.name }}</td><td>{{ item.author.name }}</td><td>{{ item.tasks|length }}건</td><td>{{ item.created_at.strftime('%Y-%m-%d') }}</td></tr>{% else %}<tr><td class="empty" colspan="8">저장된 업무일지가 없습니다.</td></tr>{% endfor %}</tbody></table></div>
+  <div class="table-wrap"><table class="meeting-board-table journal-board-table"><thead><tr><th>No.</th><th>문서구분</th><th>작성일</th><th>제목</th><th>부서(팀)</th><th>작성자</th><th>업무</th><th>등록일</th></tr></thead><tbody>{% for item in journals %}{% set preview_url = url_for('journal_preview_direct', journal_id=item.id) if is_admin_user else url_for('journal_preview', journal_id=item.id) %}<tr><td>{{ loop.index }}</td><td><span class="journal-document-badge {{ item.document_type }}">{{ item.document_label }}</span></td><td>{{ item.work_date }}</td><td><button class="meeting-board-open" type="button" data-journal-preview="{{ preview_url }}" data-journal-id="{{ item.id }}" aria-haspopup="dialog"><strong>{{ item.title }}</strong><small>상세보기</small></button></td><td>{{ item.department.name }}</td><td>{{ item.author.name }}</td><td>{{ item.tasks|length }}건</td><td>{{ item.created_at.strftime('%Y-%m-%d') }}</td></tr>{% else %}<tr><td class="empty" colspan="8">저장된 업무일지가 없습니다.</td></tr>{% endfor %}</tbody></table></div>
 </section>
 
 <dialog id="journal-compose-dialog" class="meeting-compose-dialog journal-compose-dialog" {% if show_create_dialog %}data-open-on-load{% endif %}>
@@ -54,7 +55,8 @@
     <div class="form-actions"><button class="button ghost" type="button" data-close>취소</button><button class="button primary" type="submit">저장하고 게시판에서 보기</button></div>
   </form></div>
 </dialog>
-<dialog id="journal-preview-dialog" class="meeting-preview-dialog journal-preview-dialog" data-auto-preview="{{ url_for('journal_preview', journal_id=open_journal.id) if open_journal else '' }}" aria-label="업무일지 상세"><div class="meeting-preview-loading" data-journal-preview-content><p>문서를 불러오는 중입니다.</p></div></dialog>
+{% set auto_preview_url = url_for('journal_preview_direct', journal_id=open_journal.id) if open_journal and is_admin_user else (url_for('journal_preview', journal_id=open_journal.id) if open_journal else '') %}
+<dialog id="journal-preview-dialog" class="meeting-preview-dialog journal-preview-dialog" data-auto-preview="{{ auto_preview_url }}" aria-label="업무일지 상세"><div class="meeting-preview-loading" data-journal-preview-content><p>문서를 불러오는 중입니다.</p></div></dialog>
 
 {% elif mode == 'edit' %}
 <div class="page-heading"><div><span class="eyebrow">EDIT WORK JOURNAL #{{ journal.id }}</span><h1>{{ journal.document_label }} 수정</h1><p>{{ journal.work_date }} · {{ journal.author.name }}</p></div><a class="button ghost" href="{{ url_for('journal_detail', journal_id=journal.id) }}">수정 취소</a></div>
