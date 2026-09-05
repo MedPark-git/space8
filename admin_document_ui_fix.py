@@ -1,18 +1,91 @@
 import html
 import re
 
-from flask import request
+from flask import abort, request
 from flask_login import current_user
 from flask_wtf.csrf import generate_csrf
 
-import admin_bulk_document_delete_manager  # noqa: F401
+import app as core_app
+import admin_bulk_document_delete_manager as bulk_delete
+import document_access_manager as document_access
 
-app = admin_bulk_document_delete_manager.app
-ADMIN_ROLE = "관리자"
+app = bulk_delete.app
+ADMIN_ROLE_NAMES = {"관리자", "시스템관리자"}
 
-# Disable the former client-side-only injector. Bulk delete routes remain registered.
+
+def is_effective_administrator(user):
+    if not user or not getattr(user, "is_authenticated", False):
+        return False
+    role = getattr(user, "role", None)
+    if not role:
+        return False
+    if getattr(role, "name", None) in ADMIN_ROLE_NAMES:
+        return True
+    permissions = getattr(role, "permissions", None) or {}
+    return bool(permissions.get("admin") or permissions.get("task_manage_all"))
+
+
+core_app.is_administrator = is_effective_administrator
+
+_original_can_view_work_journal = core_app.can_view_work_journal
+_original_can_view_meeting = core_app.can_view_meeting
+
+
+def can_view_work_journal_with_admin(journal):
+    if is_effective_administrator(current_user):
+        return True
+    return _original_can_view_work_journal(journal)
+
+
+def can_view_meeting_with_admin(meeting):
+    if is_effective_administrator(current_user):
+        return True
+    return _original_can_view_meeting(meeting)
+
+
+core_app.can_view_work_journal = can_view_work_journal_with_admin
+core_app.can_view_meeting = can_view_meeting_with_admin
+
+
+def _can_delete_meeting(meeting):
+    if not current_user.is_authenticated:
+        return False
+    if is_effective_administrator(current_user):
+        return True
+    return bool(
+        current_user.role.name in {"팀장", "부서장"}
+        and core_app.can_view_meeting(meeting)
+    )
+
+
+def _can_delete_journal(journal):
+    if not current_user.is_authenticated:
+        return False
+    if is_effective_administrator(current_user):
+        return True
+    return bool(
+        current_user.role.name in {"팀장", "부서장"}
+        and core_app.can_view_work_journal(journal)
+    )
+
+
+document_access._can_delete_meeting = _can_delete_meeting
+document_access._can_delete_journal = _can_delete_journal
+document_access.DELETE_ROLES.update(ADMIN_ROLE_NAMES)
+
+
+def _admin_only():
+    if not is_effective_administrator(current_user):
+        abort(403)
+
+
+bulk_delete._admin_only = _admin_only
+
 for _func in list(app.after_request_funcs.get(None, [])):
-    if getattr(_func, "__name__", "") == "inject_admin_bulk_document_delete":
+    if getattr(_func, "__name__", "") in {
+        "inject_admin_bulk_document_delete",
+        "render_admin_document_delete_controls",
+    }:
         app.after_request_funcs[None].remove(_func)
 
 
@@ -134,11 +207,14 @@ def render_admin_document_delete_controls(response):
         response.mimetype == "text/html"
         and response.status_code < 400
         and current_user.is_authenticated
-        and current_user.role.name == ADMIN_ROLE
+        and is_effective_administrator(current_user)
         and request.path in {"/meetings", "/journals"}
     ):
         page = response.get_data(as_text=True)
-        page = page.replace('<script src="/static/admin_bulk_document_delete.js?v=20260905-admin-bulk-delete" defer></script>', '')
+        page = page.replace(
+            '<script src="/static/admin_bulk_document_delete.js?v=20260905-admin-bulk-delete" defer></script>',
+            "",
+        )
         kind = "meeting" if request.path == "/meetings" else "journal"
         page = _inject_board(page, kind, generate_csrf())
         if 'data-admin-document-table=' in page and '</body>' in page:
