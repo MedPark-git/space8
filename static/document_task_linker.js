@@ -20,9 +20,28 @@
     return `${url.pathname}${url.search}`;
   };
 
-  const selectedTaskIds = (root = document) => [...root.querySelectorAll("[data-task-check]:checked:not(:disabled)")]
-    .map((checkbox) => checkbox.value)
-    .filter((value) => /^\d+$/.test(value));
+  const selectedTaskIds = (root = document) => {
+    const ids = [];
+    const businessKeys = new Set();
+    root.querySelectorAll("[data-task-check]:checked:not(:disabled)").forEach((checkbox) => {
+      const value = checkbox.value;
+      if (!/^\d+$/.test(value)) return;
+      const row = checkbox.closest("tr");
+      const category = (row?.querySelector(".task-category-path")?.textContent || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLocaleLowerCase("ko");
+      const title = (row?.querySelector(".task-title")?.textContent || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLocaleLowerCase("ko");
+      const businessKey = category && title ? `${category}|${title}` : `task:${value}`;
+      if (businessKeys.has(businessKey)) return;
+      businessKeys.add(businessKey);
+      ids.push(value);
+    });
+    return ids;
+  };
 
   const navigateWithSelectedTasks = (kind, root = document) => {
     const ids = selectedTaskIds(root);
@@ -44,6 +63,7 @@
 
   const setupTaskListDocumentActions = () => {
     if (window.location.pathname !== "/tasks") return;
+    sessionStorage.removeItem(AFTER_SAVE_KEY);
     const actionBar = document.querySelector(".task-bulk-actions");
     if (!actionBar || actionBar.dataset.documentLinkerBound) return;
     actionBar.dataset.documentLinkerBound = "true";
