@@ -1,11 +1,14 @@
 (() => {
+  if (document.body?.dataset.effectiveAdmin !== "true") return;
+
   const path = window.location.pathname;
   const config = path === "/meetings"
     ? {
         tableSelector: ".meeting-board-table",
         previewSelector: "[data-meeting-preview]",
         previewPattern: /\/meetings\/(\d+)\/preview/,
-        action: "/document-control/meetings/bulk-delete",
+        bulkAction: "/document-control/meetings/bulk-delete",
+        singleAction: (id) => `/document-control/meetings/${id}/delete`,
         noun: "일일회의 문서",
       }
     : path === "/journals"
@@ -13,7 +16,8 @@
           tableSelector: ".journal-board-table",
           previewSelector: "[data-journal-preview]",
           previewPattern: /\/journals\/(\d+)\/preview/,
-          action: "/document-control/journals/bulk-delete",
+          bulkAction: "/document-control/journals/bulk-delete",
+          singleAction: (id) => `/document-control/journals/${id}/delete`,
           noun: "업무일지 문서",
         }
       : null;
@@ -29,14 +33,10 @@
     return value.match(config.previewPattern)?.[1] || null;
   };
 
-  const submitDelete = (documentIds) => {
-    if (!documentIds.length) return;
-    const message = `선택한 ${config.noun} ${documentIds.length}건을 삭제하시겠습니까?\n연결된 각 부서(팀) 원본 업무는 삭제되지 않습니다.`;
-    if (!window.confirm(message)) return;
-
+  const postDelete = (action, documentIds = []) => {
     const form = document.createElement("form");
     form.method = "post";
-    form.action = config.action;
+    form.action = action;
     form.hidden = true;
 
     const csrf = document.createElement("input");
@@ -57,13 +57,32 @@
     form.submit();
   };
 
+  const makeTrashButton = (documentId) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "button danger small";
+    button.title = "삭제";
+    button.setAttribute("aria-label", `${config.noun} 삭제`);
+    button.style.minWidth = "36px";
+    button.style.padding = "7px 9px";
+    button.innerHTML = '<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>';
+    button.addEventListener("click", () => {
+      if (!window.confirm(`이 ${config.noun}를 삭제하시겠습니까?\n연결된 각 부서(팀) 원본 업무는 삭제되지 않습니다.`)) return;
+      postDelete(config.singleAction(documentId));
+    });
+    return button;
+  };
+
   const setup = () => {
     const table = document.querySelector(config.tableSelector);
-    const panel = table?.closest(".meeting-board-panel");
-    const headRow = table?.querySelector("thead tr");
-    const bodyRows = [...(table?.querySelectorAll("tbody tr") || [])];
-    if (!table || !panel || !headRow || table.dataset.adminBulkDeleteBound) return;
-    table.dataset.adminBulkDeleteBound = "true";
+    if (!table || table.dataset.adminDeleteReady === "true") return;
+    table.dataset.adminDeleteReady = "true";
+
+    const headRow = table.querySelector("thead tr");
+    const bodyRows = [...table.querySelectorAll("tbody tr")];
+    const panel = table.closest(".meeting-board-panel");
+    const panelHead = panel?.querySelector(":scope > .panel-head");
+    if (!headRow || !panel || !panelHead) return;
 
     const documentRows = bodyRows
       .map((row) => ({ row, documentId: extractDocumentId(row) }))
@@ -73,38 +92,45 @@
       const emptyCell = table.querySelector("tbody tr .empty");
       if (emptyCell) {
         const colspan = Number(emptyCell.getAttribute("colspan") || "0");
-        if (colspan) emptyCell.setAttribute("colspan", String(colspan + 1));
+        if (colspan) emptyCell.setAttribute("colspan", String(colspan + 2));
       }
       return;
     }
 
     const selectHead = document.createElement("th");
-    selectHead.className = "document-bulk-select";
     selectHead.style.width = "44px";
     const selectAll = document.createElement("input");
     selectAll.type = "checkbox";
-    selectAll.setAttribute("aria-label", `현재 목록 ${config.noun} 전체 선택`);
     selectAll.title = "전체 선택";
+    selectAll.setAttribute("aria-label", `${config.noun} 전체 선택`);
     selectHead.append(selectAll);
     headRow.prepend(selectHead);
 
+    const manageHead = document.createElement("th");
+    manageHead.textContent = "관리";
+    manageHead.style.width = "60px";
+    headRow.append(manageHead);
+
     const checkboxes = [];
     documentRows.forEach(({ row, documentId }) => {
-      const cell = document.createElement("td");
-      cell.className = "document-bulk-select";
+      const selectCell = document.createElement("td");
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
       checkbox.value = documentId;
-      checkbox.dataset.documentBulkCheck = "true";
+      checkbox.dataset.adminDocumentCheck = "true";
       checkbox.setAttribute("aria-label", `${config.noun} 선택`);
-      cell.append(checkbox);
-      row.prepend(cell);
+      selectCell.append(checkbox);
+      row.prepend(selectCell);
       checkboxes.push(checkbox);
+
+      const manageCell = document.createElement("td");
+      manageCell.append(makeTrashButton(documentId));
+      row.append(manageCell);
     });
 
-    const panelHead = panel.querySelector(":scope > .panel-head");
-    const actions = document.createElement("div");
-    actions.className = "button-row document-admin-bulk-actions";
+    const actionWrap = document.createElement("div");
+    actionWrap.className = "button-row document-admin-bulk-actions";
+    actionWrap.style.alignItems = "center";
 
     const selectedLabel = document.createElement("span");
     selectedLabel.className = "permission-muted";
@@ -116,17 +142,17 @@
     deleteButton.disabled = true;
     deleteButton.innerHTML = '<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg><span>선택 문서 삭제</span>';
 
-    actions.append(selectedLabel, deleteButton);
-    panelHead?.append(actions);
+    actionWrap.append(selectedLabel, deleteButton);
+    panelHead.append(actionWrap);
 
     const selectedIds = () => checkboxes.filter((checkbox) => checkbox.checked).map((checkbox) => checkbox.value);
     const updateState = () => {
       const selected = selectedIds();
       deleteButton.disabled = selected.length === 0;
       selectedLabel.textContent = `선택 ${selected.length}건`;
-      const buttonLabel = deleteButton.querySelector("span");
-      if (buttonLabel) buttonLabel.textContent = selected.length ? `선택 ${selected.length}건 삭제` : "선택 문서 삭제";
-      selectAll.checked = selected.length === checkboxes.length && checkboxes.length > 0;
+      const label = deleteButton.querySelector("span");
+      if (label) label.textContent = selected.length ? `선택 ${selected.length}건 삭제` : "선택 문서 삭제";
+      selectAll.checked = checkboxes.length > 0 && selected.length === checkboxes.length;
       selectAll.indeterminate = selected.length > 0 && selected.length < checkboxes.length;
     };
 
@@ -137,9 +163,15 @@
       updateState();
     });
     checkboxes.forEach((checkbox) => checkbox.addEventListener("change", updateState));
-    deleteButton.addEventListener("click", () => submitDelete(selectedIds()));
+    deleteButton.addEventListener("click", () => {
+      const ids = selectedIds();
+      if (!ids.length) return;
+      if (!window.confirm(`선택한 ${config.noun} ${ids.length}건을 삭제하시겠습니까?\n연결된 각 부서(팀) 원본 업무는 삭제되지 않습니다.`)) return;
+      postDelete(config.bulkAction, ids);
+    });
+
     updateState();
   };
 
-  document.addEventListener("DOMContentLoaded", setup);
+  setup();
 })();
