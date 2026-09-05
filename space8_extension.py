@@ -12,7 +12,6 @@ from app import Department, Task, WorkCategory, app, audit, db
 CATEGORY_DEPTH = 3
 _ORIGINAL_JOURNAL_CANDIDATE_TASKS = core_app.journal_candidate_tasks
 _ORIGINAL_DEFAULT_JOURNAL_TASK_IDS = core_app.default_journal_task_ids
-_ORIGINAL_CAN_VIEW_MEETING = core_app.can_view_meeting
 _ORIGINAL_CAN_VIEW_WORK_JOURNAL = core_app.can_view_work_journal
 
 
@@ -69,12 +68,11 @@ def _request_selected_task_ids(explicit_ids=None):
 
 
 def _task_document_identity(task):
-    """Return the business-level identity used only for document task pickers.
+    """Business-level identity for document pickers only.
 
-    Production task storage remains unchanged.  This identity deliberately mirrors the
-    current three-level hierarchy: department(team) -> middle -> small -> task name.
-    It is isolated here so a future fourth category level can be added without changing
-    meeting/journal persistence.
+    The production hierarchy remains three levels:
+    department(team) -> middle -> small.  Keeping this identity isolated means a future
+    fourth category level can be added without changing task/document persistence.
     """
     return (
         task.department_id,
@@ -88,13 +86,11 @@ def _deduplicate_document_tasks(tasks, selected_ids=None):
     selected_ids = _request_selected_task_ids(selected_ids)
     selected_by_identity = {}
     first_by_identity = {}
-
     for task in tasks:
         identity = _task_document_identity(task)
         first_by_identity.setdefault(identity, task)
         if task.id in selected_ids:
             selected_by_identity.setdefault(identity, task)
-
     representatives = [
         selected_by_identity.get(identity, task)
         for identity, task in first_by_identity.items()
@@ -111,6 +107,21 @@ def _deduplicate_document_tasks(tasks, selected_ids=None):
     )
 
 
+def _selected_registered_document_tasks(selected_ids=None):
+    """Return only tasks explicitly transferred from task-status/registration screens."""
+    selected_ids = _request_selected_task_ids(selected_ids)
+    if not selected_ids:
+        return []
+    return db.session.scalars(
+        select(Task)
+        .where(
+            Task.deleted_at.is_(None),
+            Task.id.in_(selected_ids),
+        )
+        .order_by(Task.id.asc())
+    ).all()
+
+
 def _all_registered_document_tasks(selected_ids=None):
     tasks = db.session.scalars(
         select(Task)
@@ -121,13 +132,22 @@ def _all_registered_document_tasks(selected_ids=None):
 
 
 def global_meeting_candidate_tasks(user, selected_task_ids=None):
-    """Daily meeting documents may reference registered tasks from every department."""
+    """Daily-meeting create starts empty and accepts company-wide registered tasks.
+
+    New agenda/minutes forms receive only task ids explicitly transferred from task
+    status/registration screens. Edit screens may browse the de-duplicated company-wide
+    task catalog so existing documents remain maintainable.
+    """
+    if request.path == "/meetings":
+        return _selected_registered_document_tasks(selected_task_ids)
     return _all_registered_document_tasks(selected_task_ids)
 
 
 def global_major_journal_candidate_tasks(user, document_type):
-    """Major-work documents are company-wide; daily journals stay personal/scoped."""
+    """Major-work is company-wide; daily journal keeps its existing personal scope."""
     if document_type == "major":
+        if request.path == "/journals":
+            return _selected_registered_document_tasks()
         return _all_registered_document_tasks()
     return _ORIGINAL_JOURNAL_CANDIDATE_TASKS(user, document_type)
 
@@ -151,8 +171,7 @@ def global_major_work_visibility(journal):
     return _ORIGINAL_CAN_VIEW_WORK_JOURNAL(journal)
 
 
-# Patch only the document-selection/view helpers. Task CRUD and daily-journal privacy
-# remain untouched. Route functions in app.py resolve these globals at request time.
+# Patch only document selection/view helpers. Task CRUD and daily-journal privacy stay intact.
 core_app.meeting_candidate_tasks = global_meeting_candidate_tasks
 core_app.journal_candidate_tasks = global_major_journal_candidate_tasks
 core_app.default_journal_task_ids = document_default_journal_task_ids
@@ -163,12 +182,7 @@ core_app.can_view_work_journal = global_major_work_visibility
 @app.post("/tasks/work-categories/add")
 @login_required
 def department_work_category_add():
-    """Create a middle/small category inside an existing department-level major category.
-
-    The current production hierarchy remains exactly three levels:
-    department(team) -> middle -> small.  This endpoint is deliberately isolated from
-    task CRUD so a future fourth level can be introduced without coupling it to Task.
-    """
+    """Create a middle/small category inside the existing department-level major category."""
     department_id = request.form.get("department_id", type=int)
     middle_name = str(request.form.get("middle_name") or "").strip()
     small_name = str(request.form.get("small_name") or "").strip()
@@ -188,10 +202,7 @@ def department_work_category_add():
 
     is_admin = current_user.role.name == "관리자"
     if not is_admin and current_user.department_id != department_id:
-        return _category_error(
-            "본인 소속 부서(팀)의 업무구분만 추가할 수 있습니다.",
-            403,
-        )
+        return _category_error("본인 소속 부서(팀)의 업무구분만 추가할 수 있습니다.", 403)
 
     try:
         category = db.session.scalar(
@@ -252,7 +263,11 @@ def department_work_category_add():
         message = (
             "새 업무구분을 추가했습니다."
             if created
-            else ("미사용 업무구분을 다시 활성화했습니다." if reactivated else "이미 등록된 업무구분입니다. 해당 항목을 선택했습니다.")
+            else (
+                "미사용 업무구분을 다시 활성화했습니다."
+                if reactivated
+                else "이미 등록된 업무구분입니다. 해당 항목을 선택했습니다."
+            )
         )
         return jsonify({"ok": True, "message": message, "category": payload})
 
