@@ -59,7 +59,7 @@ content_manager.document_task_content = safe_document_task_content
 app.jinja_env.globals["document_task_content"] = safe_document_task_content
 
 
-# Replace only the preview endpoint. Non-admin behavior stays on the original route.
+# Keep original endpoint patched for compatibility.
 _original_journal_preview = app.view_functions.get("journal_preview")
 
 
@@ -87,7 +87,82 @@ def journal_preview_admin_safe(journal_id):
         can_edit=True,
         today=date.today(),
     )
-    return response, 200, {"X-MedPark-Journal-Preview": "admin-safe"}
+    return response, 200, {"X-MedPark-Journal-Preview": "admin-safe-compatible"}
 
 
 app.view_functions["journal_preview"] = journal_preview_admin_safe
+
+
+def _safe_task_row(journal, task, logs_by_task):
+    try:
+        content = safe_document_task_content("journal", journal.id, task)
+    except Exception:
+        core_app.db.session.rollback()
+        content = task.content or ""
+
+    try:
+        classifications = [item.name for item in task.classifications]
+    except Exception:
+        core_app.db.session.rollback()
+        classifications = []
+
+    try:
+        department_name = task.department.name if task.department else "-"
+    except Exception:
+        core_app.db.session.rollback()
+        department_name = "-"
+
+    try:
+        assignee_name = task.assignee.name if task.assignee else "-"
+    except Exception:
+        core_app.db.session.rollback()
+        assignee_name = "-"
+
+    return {
+        "id": task.id,
+        "title": task.title,
+        "content": content,
+        "department_name": department_name,
+        "classification_names": classifications,
+        "assignee_name": assignee_name,
+        "target_date": task.target_date,
+        "progress": task.progress,
+        "status": task.status,
+        "status_class": task.status_class,
+        "logs": logs_by_task.get(task.id, []),
+    }
+
+
+@app.get("/admin-safe/journals/<int:journal_id>/preview")
+@login_required
+def admin_safe_journal_preview(journal_id):
+    """Isolated administrator preview path that avoids /journals after-request chains."""
+    if not _is_admin(current_user):
+        abort(403)
+
+    journal = core_app.db.session.get(core_app.WorkJournalDocument, journal_id)
+    if not journal:
+        abort(404)
+
+    try:
+        logs_by_task = core_app.journal_logs_by_task(journal)
+    except Exception:
+        core_app.db.session.rollback()
+        logs_by_task = {}
+
+    task_rows = []
+    try:
+        linked_tasks = list(journal.tasks)
+    except Exception:
+        core_app.db.session.rollback()
+        linked_tasks = []
+
+    for task in linked_tasks:
+        task_rows.append(_safe_task_row(journal, task, logs_by_task))
+
+    return render_template(
+        "journal_preview_admin_safe.html",
+        journal=journal,
+        task_rows=task_rows,
+        today=date.today(),
+    ), 200, {"X-MedPark-Journal-Preview": "admin-isolated-safe"}
