@@ -15,7 +15,7 @@
       ? {
           tableSelector: ".journal-board-table",
           previewSelector: "[data-journal-preview]",
-          previewPattern: /\/journals\/(\d+)\/preview/,
+          previewPattern: /\/(?:admin-safe\/)?journals\/(\d+)\/preview/,
           bulkAction: "/document-control/journals/bulk-delete",
           singleAction: (id) => `/document-control/journals/${id}/delete`,
           noun: "업무일지 문서",
@@ -25,6 +25,23 @@
   if (!config) return;
 
   const csrfToken = () => document.querySelector('meta[name="csrf-token"]')?.content || "";
+
+  const rewriteAdminJournalPreviewUrls = () => {
+    if (path !== "/journals") return;
+    document.querySelectorAll("[data-journal-preview]").forEach((button) => {
+      const current = button.dataset.journalPreview || "";
+      const match = current.match(/\/journals\/(\d+)\/preview/);
+      if (match) button.dataset.journalPreview = `/admin-safe/journals/${match[1]}/preview`;
+    });
+    const dialog = document.querySelector("#journal-preview-dialog");
+    const autoPreview = dialog?.dataset.autoPreview || "";
+    const autoMatch = autoPreview.match(/\/journals\/(\d+)\/preview/);
+    if (dialog && autoMatch) {
+      dialog.dataset.autoPreview = `/admin-safe/journals/${autoMatch[1]}/preview`;
+    }
+  };
+
+  rewriteAdminJournalPreviewUrls();
 
   const extractDocumentId = (row) => {
     const preview = row.querySelector(config.previewSelector);
