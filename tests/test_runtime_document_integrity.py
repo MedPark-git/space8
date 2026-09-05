@@ -40,7 +40,7 @@ class RuntimeDocumentIntegrityTests(unittest.TestCase):
         script = read_text("static/admin_bulk_document_delete.js")
         self.assertIn('idDatasetKey: "journalId"', script)
         self.assertIn("preview.dataset[config.idDatasetKey]", script)
-        self.assertIn("document-control\\/", script)
+        self.assertIn("document-control\/", script)
         self.assertNotIn("rewriteAdminJournalPreviewUrls", script)
 
     def test_document_edit_and_delete_permission_contracts_are_present(self):
