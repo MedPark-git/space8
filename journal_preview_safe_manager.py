@@ -26,7 +26,6 @@ def _is_admin(user):
         return bool(permissions.get("admin") or permissions.get("task_manage_all"))
 
 
-# Keep every daily-journal permission path consistent for administrator accounts.
 _previous_can_view_daily_journal_author = core_app.can_view_daily_journal_author
 _previous_can_view_work_journal = core_app.can_view_work_journal
 _previous_can_edit_work_journal = core_app.can_edit_work_journal
@@ -55,118 +54,62 @@ core_app.can_view_work_journal = can_view_work_journal_with_admin
 core_app.can_edit_work_journal = can_edit_work_journal_with_admin
 
 
-def _admin_journal_payload(journal_id):
-    """Read one saved journal without ORM relationships.
+def _one(sql, params):
+    return core_app.db.session.execute(text(sql), params).mappings().first()
 
-    This intentionally avoids the accumulated permission/snapshot extension chain so an
-    administrator can always open a saved document even if one optional relation fails.
+
+def _all(sql, params):
+    return core_app.db.session.execute(text(sql), params).mappings().all()
+
+
+def _admin_journal_payload(journal_id):
+    """Read a saved journal using only direct SQL and per-task lookups.
+
+    This deliberately avoids ORM relationships and array binding so preview rendering
+    cannot be blocked by optional snapshot data or extension-layer permission hooks.
     """
-    journal_row = core_app.db.session.execute(
-        text(
-            """
-            SELECT
-                j.id,
-                j.work_date,
-                j.document_type,
-                j.title,
-                j.work_summary,
-                j.next_plan,
-                j.special_notes,
-                j.author_id,
-                j.department_id,
-                COALESCE(d.name, '-') AS department_name,
-                COALESCE(e.name, '-') AS author_name
-            FROM work_journal_documents AS j
-            LEFT JOIN departments AS d ON d.id = j.department_id
-            LEFT JOIN employees AS e ON e.id = j.author_id
-            WHERE j.id = :journal_id
-            """
-        ),
+    journal_row = _one(
+        """
+        SELECT
+            j.id,
+            j.work_date,
+            j.document_type,
+            j.title,
+            j.work_summary,
+            j.next_plan,
+            j.special_notes,
+            j.author_id,
+            j.department_id,
+            COALESCE(d.name, '-') AS department_name,
+            COALESCE(e.name, '-') AS author_name
+        FROM work_journal_documents AS j
+        LEFT JOIN departments AS d ON d.id = j.department_id
+        LEFT JOIN employees AS e ON e.id = j.author_id
+        WHERE j.id = :journal_id
+        """,
         {"journal_id": journal_id},
-    ).mappings().first()
+    )
     if not journal_row:
         return None, []
 
-    task_rows_raw = core_app.db.session.execute(
-        text(
-            """
-            SELECT
-                t.id,
-                t.title,
-                COALESCE(t.content, '') AS content,
-                t.target_date,
-                t.progress,
-                t.status,
-                COALESCE(e.name, '-') AS assignee_name
-            FROM work_journal_document_items AS link
-            JOIN tasks AS t ON t.id = link.task_id
-            LEFT JOIN employees AS e ON e.id = t.assignee_id
-            WHERE link.journal_id = :journal_id
-            ORDER BY t.target_date, t.id
-            """
-        ),
+    base_tasks = _all(
+        """
+        SELECT
+            t.id,
+            t.title,
+            COALESCE(t.content, '') AS content,
+            t.target_date,
+            t.progress,
+            t.status,
+            COALESCE(e.name, '-') AS assignee_name
+        FROM work_journal_document_items AS link
+        JOIN tasks AS t ON t.id = link.task_id
+        LEFT JOIN employees AS e ON e.id = t.assignee_id
+        WHERE link.journal_id = :journal_id
+        ORDER BY t.target_date, t.id
+        """,
         {"journal_id": journal_id},
-    ).mappings().all()
-
-    task_ids = [row["id"] for row in task_rows_raw]
-    classifications = {}
-    logs = {}
-    if task_ids:
-        classification_rows = core_app.db.session.execute(
-            text(
-                """
-                SELECT task_id, name
-                FROM task_classifications
-                WHERE task_id = ANY(:task_ids)
-                ORDER BY task_id, id
-                """
-            ),
-            {"task_ids": task_ids},
-        ).mappings().all()
-        for row in classification_rows:
-            classifications.setdefault(row["task_id"], []).append(row["name"])
-
-        if journal_row["document_type"] == "daily":
-            log_rows = core_app.db.session.execute(
-                text(
-                    """
-                    SELECT task_id, content
-                    FROM task_daily_logs
-                    WHERE task_id = ANY(:task_ids)
-                      AND work_date = :work_date
-                      AND author_id = :author_id
-                    ORDER BY task_id, created_at, id
-                    """
-                ),
-                {
-                    "task_ids": task_ids,
-                    "work_date": journal_row["work_date"],
-                    "author_id": journal_row["author_id"],
-                },
-            ).mappings().all()
-            for row in log_rows:
-                logs.setdefault(row["task_id"], []).append({"content": row["content"]})
-
-    # Snapshot contents are optional. Failure here must never block the preview.
-    snapshots = {}
-    if task_ids:
-        try:
-            snapshot_rows = core_app.db.session.execute(
-                text(
-                    """
-                    SELECT task_id, content
-                    FROM document_task_contents
-                    WHERE document_kind = 'journal'
-                      AND document_id = :journal_id
-                      AND task_id = ANY(:task_ids)
-                    """
-                ),
-                {"journal_id": journal_id, "task_ids": task_ids},
-            ).mappings().all()
-            snapshots = {row["task_id"]: row["content"] for row in snapshot_rows}
-        except Exception:
-            core_app.db.session.rollback()
-            snapshots = {}
+    )
 
     journal = {
         "id": journal_row["id"],
@@ -185,21 +128,77 @@ def _admin_journal_payload(journal_id):
     }
 
     task_rows = []
-    for row in task_rows_raw:
+    for task in base_tasks:
+        classification_names = [
+            row["name"]
+            for row in _all(
+                """
+                SELECT name
+                FROM task_classifications
+                WHERE task_id = :task_id
+                ORDER BY id
+                """,
+                {"task_id": task["id"]},
+            )
+        ]
+
+        task_logs = []
+        if journal_row["document_type"] == "daily":
+            task_logs = [
+                {"content": row["content"]}
+                for row in _all(
+                    """
+                    SELECT content
+                    FROM task_daily_logs
+                    WHERE task_id = :task_id
+                      AND work_date = :work_date
+                      AND author_id = :author_id
+                    ORDER BY created_at, id
+                    """,
+                    {
+                        "task_id": task["id"],
+                        "work_date": journal_row["work_date"],
+                        "author_id": journal_row["author_id"],
+                    },
+                )
+            ]
+
+        content = task["content"]
+        try:
+            snapshot = _one(
+                """
+                SELECT content
+                FROM document_task_contents
+                WHERE document_kind = 'journal'
+                  AND document_id = :journal_id
+                  AND task_id = :task_id
+                LIMIT 1
+                """,
+                {"journal_id": journal_id, "task_id": task["id"]},
+            )
+            if snapshot is not None:
+                content = snapshot["content"]
+        except Exception:
+            # Snapshot data is optional. Never block preview when the optional table
+            # or row is unavailable.
+            core_app.db.session.rollback()
+            content = task["content"]
+
         task_rows.append(
             {
-                "id": row["id"],
-                "title": row["title"],
-                "content": snapshots.get(row["id"], row["content"]),
-                "classification_names": classifications.get(row["id"], []),
-                "assignee_name": row["assignee_name"],
-                "target_date": row["target_date"],
-                "progress": row["progress"],
-                "status": row["status"],
-                "status_class": core_app.STATUS_CLASS.get(row["status"], "progress"),
-                "logs": logs.get(row["id"], []),
+                "id": task["id"],
+                "title": task["title"],
+                "content": content,
+                "classification_names": classification_names,
+                "assignee_name": task["assignee_name"],
+                "target_date": task["target_date"],
+                "progress": task["progress"],
+                "status": task["status"],
+                "status_class": core_app.STATUS_CLASS.get(task["status"], "progress"),
+                "logs": task_logs,
             }
         )
+
     return journal, task_rows
 
 
@@ -219,8 +218,6 @@ def _render_admin_preview(journal_id):
     )
 
 
-# Preserve the original endpoint for non-admin users, but force administrators through
-# the direct-SQL renderer even when the old URL is used.
 _original_journal_preview = app.view_functions.get("journal_preview")
 
 
@@ -228,7 +225,7 @@ _original_journal_preview = app.view_functions.get("journal_preview")
 def journal_preview_admin_safe(journal_id):
     if _is_admin(current_user):
         return _render_admin_preview(journal_id), 200, {
-            "X-MedPark-Journal-Preview": "admin-direct-sql"
+            "X-MedPark-Journal-Preview": "admin-direct-sql-per-task"
         }
     if _original_journal_preview is None:
         abort(404)
@@ -244,5 +241,5 @@ def admin_safe_journal_preview(journal_id):
     if not _is_admin(current_user):
         abort(403)
     return _render_admin_preview(journal_id), 200, {
-        "X-MedPark-Journal-Preview": "admin-direct-sql-isolated"
+        "X-MedPark-Journal-Preview": "admin-direct-sql-per-task-isolated"
     }
