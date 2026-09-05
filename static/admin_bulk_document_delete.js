@@ -7,6 +7,7 @@
         tableSelector: ".meeting-board-table",
         previewSelector: "[data-meeting-preview]",
         previewPattern: /\/meetings\/(\d+)\/preview/,
+        idDatasetKey: "meetingId",
         bulkAction: "/document-control/meetings/bulk-delete",
         singleAction: (id) => `/document-control/meetings/${id}/delete`,
         noun: "일일회의 문서",
@@ -15,7 +16,8 @@
       ? {
           tableSelector: ".journal-board-table",
           previewSelector: "[data-journal-preview]",
-          previewPattern: /\/(?:admin-safe\/)?journals\/(\d+)\/preview/,
+          previewPattern: /\/(?:document-control\/|admin-safe\/)?journals\/(\d+)\/preview/,
+          idDatasetKey: "journalId",
           bulkAction: "/document-control/journals/bulk-delete",
           singleAction: (id) => `/document-control/journals/${id}/delete`,
           noun: "업무일지 문서",
@@ -26,26 +28,13 @@
 
   const csrfToken = () => document.querySelector('meta[name="csrf-token"]')?.content || "";
 
-  const rewriteAdminJournalPreviewUrls = () => {
-    if (path !== "/journals") return;
-    document.querySelectorAll("[data-journal-preview]").forEach((button) => {
-      const current = button.dataset.journalPreview || "";
-      const match = current.match(/\/journals\/(\d+)\/preview/);
-      if (match) button.dataset.journalPreview = `/admin-safe/journals/${match[1]}/preview`;
-    });
-    const dialog = document.querySelector("#journal-preview-dialog");
-    const autoPreview = dialog?.dataset.autoPreview || "";
-    const autoMatch = autoPreview.match(/\/journals\/(\d+)\/preview/);
-    if (dialog && autoMatch) {
-      dialog.dataset.autoPreview = `/admin-safe/journals/${autoMatch[1]}/preview`;
-    }
-  };
-
-  rewriteAdminJournalPreviewUrls();
-
   const extractDocumentId = (row) => {
     const preview = row.querySelector(config.previewSelector);
     if (!preview) return null;
+
+    const explicitId = String(preview.dataset[config.idDatasetKey] || "").trim();
+    if (/^\d+$/.test(explicitId)) return explicitId;
+
     const value = preview.dataset.meetingPreview || preview.dataset.journalPreview || "";
     return value.match(config.previewPattern)?.[1] || null;
   };
