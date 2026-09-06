@@ -8,6 +8,7 @@ from sqlalchemy import text
 
 import app as core_app
 import admin_document_ui_fix as admin_ui
+import document_task_content_manager as task_content_manager
 
 app = admin_ui.app
 
@@ -55,6 +56,20 @@ def can_edit_work_journal_with_admin(journal):
 core_app.can_view_daily_journal_author = can_view_daily_journal_author_with_admin
 core_app.can_view_work_journal = can_view_work_journal_with_admin
 core_app.can_edit_work_journal = can_edit_work_journal_with_admin
+
+
+def safe_document_task_content(document_kind, document_id, task):
+    """Return the per-document task content without ever breaking board rendering."""
+    if not task:
+        return ""
+    try:
+        return task_content_manager.document_task_content(document_kind, document_id, task)
+    except Exception:
+        core_app.db.session.rollback()
+        return task.content or ""
+
+
+app.jinja_env.globals["safe_document_task_content"] = safe_document_task_content
 
 
 def _one(sql, params):
@@ -233,11 +248,7 @@ def _minimal_fallback_html(row):
 @app.get("/document-control/journals/<int:journal_id>/preview")
 @login_required
 def journal_preview_direct(journal_id):
-    """Stable administrator preview endpoint using the exact DB document id.
-
-    This path deliberately avoids every /journals after-request extension. It must
-    return a readable document for any administrator-visible row in the board.
-    """
+    """Stable administrator preview endpoint using the exact DB document id."""
     if not _is_admin(current_user):
         abort(403)
 
