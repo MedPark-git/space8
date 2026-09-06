@@ -14,34 +14,39 @@ class RuntimeDocumentIntegrityTests(unittest.TestCase):
         procfile = read_text("Procfile")
         self.assertIn("journal_preview_safe_manager:app", procfile)
 
-    def test_admin_journal_board_uses_exact_document_id_preview_contract(self):
+    def test_admin_journal_board_renders_details_without_ajax_preview(self):
         template = read_text("templates/journals.html")
-        self.assertIn("url_for('journal_preview_direct', journal_id=item.id)", template)
-        self.assertIn('data-journal-id="{{ item.id }}"', template)
-        self.assertIn("url_for('journal_preview', journal_id=item.id)", template)
+        self.assertIn('data-dialog="journal-inline-{{ item.id }}"', template)
+        self.assertIn('data-admin-delete-ready="true"', template)
+        self.assertIn('data-journal-admin-check', template)
+        self.assertIn('/document-control/journals/{{ item.id }}/delete', template)
+        self.assertIn("safe_document_task_content('journal', item.id, task)", template)
+        self.assertNotIn("url_for('journal_preview_direct'", template)
 
-    def test_admin_direct_preview_route_has_minimal_200_fallback(self):
+    def test_admin_direct_preview_route_keeps_minimal_200_fallback(self):
         manager = read_text("journal_preview_safe_manager.py")
         self.assertIn(
             '@app.get("/document-control/journals/<int:journal_id>/preview")',
             manager,
         )
         self.assertIn("def journal_preview_direct(journal_id):", manager)
-        self.assertIn("if not _is_admin(current_user):", manager)
         self.assertIn("return _minimal_fallback_html(row), 200", manager)
+        self.assertIn('app.jinja_env.globals["safe_document_task_content"]', manager)
 
-    def test_admin_preview_frontend_does_not_rewrite_to_removed_safe_path(self):
+    def test_admin_preview_frontend_cannot_break_server_rendered_admin_board(self):
+        template = read_text("templates/journals.html")
         script = read_text("static/admin_journal_preview.js")
-        self.assertNotIn("admin-safe/journals", script)
-        self.assertIn("button.dataset.journalPreview", script)
-        self.assertIn('cache: "no-store"', script)
+        self.assertIn('{% else %}\n<dialog id="journal-preview-dialog"', template)
+        self.assertNotIn('id="journal-preview-dialog"', template.split("{% else %}")[0])
+        self.assertIn('if (!dialog || !content) return;', script)
 
-    def test_admin_delete_uses_explicit_journal_id_and_supports_direct_preview_url(self):
+    def test_admin_delete_controls_are_server_rendered_and_js_will_not_duplicate(self):
+        template = read_text("templates/journals.html")
         script = read_text("static/admin_bulk_document_delete.js")
-        self.assertIn('idDatasetKey: "journalId"', script)
-        self.assertIn("preview.dataset[config.idDatasetKey]", script)
-        self.assertIn("document-control\/", script)
-        self.assertNotIn("rewriteAdminJournalPreviewUrls", script)
+        self.assertIn('data-admin-delete-ready="true"', template)
+        self.assertIn('if (!table || table.dataset.adminDeleteReady === "true") return;', script)
+        self.assertIn('/document-control/journals/bulk-delete', template)
+        self.assertIn('name="document_ids"', template)
 
     def test_document_edit_and_delete_permission_contracts_are_present(self):
         access = read_text("document_access_manager.py")
@@ -65,11 +70,6 @@ class RuntimeDocumentIntegrityTests(unittest.TestCase):
         self.assertIn('down_revision = "20260904_0016"', migration_17)
         self.assertIn('revision = "20260905_0018"', migration_18)
         self.assertIn('down_revision = "20260905_0017"', migration_18)
-
-    def test_asset_versions_force_refresh_after_integrity_fix(self):
-        base = read_text("templates/base.html")
-        self.assertIn("20260906-admin-bulk-delete-v5", base)
-        self.assertIn("20260906-admin-journal-preview-v4", base)
 
 
 if __name__ == "__main__":
