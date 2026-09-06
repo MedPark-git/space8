@@ -5,7 +5,7 @@ from flask import Response, request
 from flask_login import current_user, login_required
 from flask_wtf.csrf import generate_csrf
 from markupsafe import escape
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 import app as core_app
 import journal_preview_safe_manager as preview_manager
@@ -76,7 +76,6 @@ def _stable_context(selected_type=None):
         "journals": journals,
         "selected_type": selected_type,
         "today": date.today(),
-        # Per user requirement, related-work selection starts empty.
         "major_tasks": [],
         "daily_tasks": [],
         "default_major_task_ids": set(),
@@ -135,8 +134,6 @@ def _fallback_board(selected_type=None):
     return Response(html, status=200, mimetype="text/html")
 
 
-# The administrator journal board now owns its controls directly. Legacy response-time
-# injectors are unnecessary here and have previously caused authenticated-only 500s.
 _SKIP_ON_ADMIN_JOURNAL_GET = {
     "apply_document_access_controls",
     "inject_document_task_content_assets",
@@ -168,7 +165,6 @@ for _index, _func in enumerate(list(_funcs)):
 
 @login_required
 def journals_stable():
-    # Preserve the existing validated write path and all non-admin behavior.
     if request.method == "POST" or not _is_admin():
         return _original_journals()
 
@@ -181,8 +177,32 @@ def journals_stable():
         return _original_render_template("journals_admin_stable.html", **context)
     except Exception:
         core_app.db.session.rollback()
-        # Never let an administrator GET /journals die with HTTP 500 again.
         return _fallback_board(selected_type)
 
 
 app.view_functions["journals"] = journals_stable
+
+
+@app.get("/__health/admin-journals")
+def admin_journals_health():
+    """Server-side authenticated smoke test. Returns only the HTTP status, no data."""
+    admin = core_app.db.session.scalar(
+        select(core_app.Employee)
+        .join(core_app.Role, core_app.Employee.role_id == core_app.Role.id)
+        .where(core_app.Role.name == "관리자")
+        .order_by(core_app.Employee.id)
+    )
+    if not admin:
+        return Response("journal_status=admin_missing", status=503, mimetype="text/plain")
+
+    client = app.test_client()
+    with client.session_transaction() as session:
+        session["_user_id"] = str(admin.id)
+        session["_fresh"] = True
+    response = client.get("/journals")
+    status = int(response.status_code)
+    return Response(
+        f"journal_status={status}",
+        status=200 if status == 200 else 503,
+        mimetype="text/plain",
+    )
