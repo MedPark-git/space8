@@ -18,7 +18,8 @@
     <button class="nav-toggle" type="button" aria-label="메뉴 열기">☰</button>
     <nav class="main-nav">
       {% for menu in visible_menus %}
-      <a href="{{ menu.url }}" class="{{ 'active' if request.path == menu.url or (menu.url != '/' and request.path.startswith(menu.url)) else '' }}">{{ menu.name }}</a>
+      {% set menu_url = '/work-journals' if menu.url == '/journals' else menu.url %}
+      <a href="{{ menu_url }}" class="{{ 'active' if request.path == menu_url or (menu_url != '/' and request.path.startswith(menu_url)) else '' }}">{{ menu.name }}</a>
       {% endfor %}
     </nav>
     <div class="user-menu">
