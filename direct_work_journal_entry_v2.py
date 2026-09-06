@@ -29,9 +29,26 @@ class WorkJournalPathNormalizer:
             pairs.append(("open", str(open_id)))
         environ["QUERY_STRING"] = urlencode(pairs)
 
+    @staticmethod
+    def _health(start_response):
+        body = b"work_journal_normalizer=active"
+        start_response(
+            "200 OK",
+            [
+                ("Content-Type", "text/plain; charset=utf-8"),
+                ("Content-Length", str(len(body))),
+                ("Cache-Control", "no-store"),
+                ("X-MedPark-Work-Journal-Normalizer", "1"),
+            ],
+        )
+        return [body]
+
     def __call__(self, environ, start_response):
         method = (environ.get("REQUEST_METHOD") or "GET").upper()
         path = environ.get("PATH_INFO") or ""
+
+        if path == "/__health/work-journal-normalizer":
+            return self._health(start_response)
 
         if method != "GET":
             return self.downstream(environ, start_response)
