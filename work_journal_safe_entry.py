@@ -1,18 +1,19 @@
-from flask import Response
+from flask import Response, redirect
+from sqlalchemy import text
 
 import journal_emergency_gateway as gateway
+import app as core_app
 
 app = gateway.app
 LAST_WORK_JOURNAL_ERROR = {"code": "none"}
 
 
 @app.get("/work-journals")
+@app.get("/work-journal")
+@app.get("/journal")
+@app.get("/journal-board")
 def work_journals_safe():
-    """Canonical stable work-journal board.
-
-    The underlying safe board already enforces login and document visibility.
-    Keeping a different public path prevents legacy /journals hooks from running.
-    """
+    """Canonical stable work-journal board with legacy URL aliases."""
     return gateway.safe_journal_board()
 
 
@@ -28,6 +29,23 @@ def work_journals_last_error():
         status=200,
         mimetype="text/plain",
     )
+
+
+@app.get("/__health/work-journal-menu-url")
+def work_journal_menu_url():
+    try:
+        row = core_app.db.session.execute(
+            text("SELECT url FROM menus WHERE name = '업무일지' AND active = true ORDER BY id LIMIT 1")
+        ).mappings().first()
+        value = row["url"] if row else "missing"
+        return Response(f"work_journal_menu_url={value}", status=200, mimetype="text/plain")
+    except Exception as exc:
+        core_app.db.session.rollback()
+        return Response(
+            f"work_journal_menu_url_error={type(exc).__name__}",
+            status=200,
+            mimetype="text/plain",
+        )
 
 
 def _rescue_html():
@@ -49,11 +67,18 @@ def _rescue_html():
 class WorkJournalEntryGateway:
     """Outer-most journal gateway.
 
-    It runs outside all older journal wrappers. GET /journals is rewritten before
-    the legacy gateway sees it, and any 500/uncaught exception on the canonical
-    /work-journals path is converted to a safe 200 page while recording only a
-    non-sensitive error code for diagnosis.
+    All known work-journal GET paths are normalized to /work-journals before
+    older wrappers or legacy Flask routes can handle them. Any uncaught 500 is
+    converted to a safe 200 response and a non-sensitive error code is retained.
     """
+
+    JOURNAL_PATHS = {
+        "/journals",
+        "/work-journals",
+        "/work-journal",
+        "/journal",
+        "/journal-board",
+    }
 
     def __init__(self, downstream):
         self.downstream = downstream
@@ -61,11 +86,11 @@ class WorkJournalEntryGateway:
     def __call__(self, environ, start_response):
         method = environ.get("REQUEST_METHOD")
         original_path = environ.get("PATH_INFO") or ""
-        monitored = method == "GET" and original_path in {"/journals", "/work-journals"}
+        monitored = method == "GET" and original_path in self.JOURNAL_PATHS
 
-        if method == "GET" and original_path == "/journals":
+        if method == "GET" and original_path in self.JOURNAL_PATHS and original_path != "/work-journals":
             environ = environ.copy()
-            environ["ORIGINAL_PATH_INFO"] = "/journals"
+            environ["ORIGINAL_PATH_INFO"] = original_path
             environ["PATH_INFO"] = "/work-journals"
 
         if not monitored:
@@ -101,6 +126,25 @@ class WorkJournalEntryGateway:
             return [body]
 
         status = captured["status"] or "500 INTERNAL SERVER ERROR"
+        if status.startswith("404") and monitored:
+            LAST_WORK_JOURNAL_ERROR["code"] = f"response:{status.split()[0]}"
+            location = "/work-journals"
+            response_body = (
+                "<!doctype html><html><head><meta charset='utf-8'>"
+                "<meta http-equiv='refresh' content='0;url=/work-journals'></head>"
+                "<body><a href='/work-journals'>업무일지로 이동</a></body></html>"
+            ).encode("utf-8")
+            start_response(
+                "302 FOUND",
+                [
+                    ("Location", location),
+                    ("Content-Type", "text/html; charset=utf-8"),
+                    ("Content-Length", str(len(response_body))),
+                    ("Cache-Control", "no-store"),
+                ],
+            )
+            return [response_body]
+
         if status.startswith("500"):
             LAST_WORK_JOURNAL_ERROR["code"] = "response:500"
             body = _rescue_html()
