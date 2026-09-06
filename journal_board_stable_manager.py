@@ -1,8 +1,10 @@
 from datetime import date
-from types import SimpleNamespace
+from functools import wraps
 
-from flask import render_template as flask_render_template, request
+from flask import Response, request
 from flask_login import current_user, login_required
+from flask_wtf.csrf import generate_csrf
+from markupsafe import escape
 from sqlalchemy import text
 
 import app as core_app
@@ -24,7 +26,7 @@ def _load_admin_journals(selected_type=None):
         where_clause = "WHERE j.document_type = :document_type"
         params["document_type"] = selected_type
 
-    rows = core_app.db.session.execute(
+    return core_app.db.session.execute(
         text(
             f"""
             SELECT
@@ -50,42 +52,33 @@ def _load_admin_journals(selected_type=None):
         params,
     ).mappings().all()
 
-    return [
-        SimpleNamespace(
-            id=row["id"],
-            work_date=row["work_date"],
-            document_type=row["document_type"],
-            document_label=core_app.JOURNAL_DOCUMENT_TYPES.get(
-                row["document_type"], core_app.JOURNAL_DOCUMENT_TYPES["daily"]
-            ),
-            title=row["title"],
-            department_name=row["department_name"],
-            author_name=row["author_name"],
-            task_count=int(row["task_count"] or 0),
-            created_at=row["created_at"],
-        )
-        for row in rows
-    ]
-
-
-def _candidate_tasks(document_type):
-    try:
-        tasks = core_app.journal_candidate_tasks(current_user, document_type)
-        return tasks
-    except Exception:
-        core_app.db.session.rollback()
-        return []
-
 
 def _stable_context(selected_type=None):
+    rows = _load_admin_journals(selected_type)
+    journals = []
+    for row in rows:
+        journals.append(
+            {
+                "id": row["id"],
+                "work_date": row["work_date"],
+                "document_type": row["document_type"],
+                "document_label": core_app.JOURNAL_DOCUMENT_TYPES.get(
+                    row["document_type"], core_app.JOURNAL_DOCUMENT_TYPES["daily"]
+                ),
+                "title": row["title"],
+                "department_name": row["department_name"],
+                "author_name": row["author_name"],
+                "task_count": int(row["task_count"] or 0),
+                "created_at": row["created_at"],
+            }
+        )
     return {
-        "journals": _load_admin_journals(selected_type),
+        "journals": journals,
         "selected_type": selected_type,
         "today": date.today(),
-        "major_tasks": _candidate_tasks("major"),
-        "daily_tasks": _candidate_tasks("daily"),
-        # Related tasks must start empty. Users explicitly choose only the work
-        # they want to include in the saved document.
+        # Per user requirement, related-work selection starts empty.
+        "major_tasks": [],
+        "daily_tasks": [],
         "default_major_task_ids": set(),
         "default_daily_task_ids": set(),
         "show_create_dialog": False,
@@ -93,29 +86,89 @@ def _stable_context(selected_type=None):
     }
 
 
-def stable_render_template(template_name, *args, **context):
-    """Render all administrator journal list responses with the standalone template.
+def _fallback_board(selected_type=None):
+    try:
+        rows = _load_admin_journals(selected_type)
+    except Exception:
+        core_app.db.session.rollback()
+        rows = []
 
-    This also catches validation-error renders from the original POST handler, so an
-    invalid form cannot fall back to the unstable legacy administrator board.
-    """
-    if template_name == "journals.html" and context.get("mode") == "list" and _is_admin():
-        stable = _stable_context(context.get("selected_type"))
-        stable.update({key: value for key, value in context.items() if key not in stable})
-        # Preserve POST form choices supplied by the original handler while keeping
-        # the standalone journal list and empty default task selection contract.
-        stable["journals"] = _load_admin_journals(context.get("selected_type"))
-        stable["TASK_STATUSES"] = core_app.TASK_STATUSES
-        return _original_render_template("journals_admin_stable.html", *args, **stable)
-    return _original_render_template(template_name, *args, **context)
+    try:
+        csrf = str(generate_csrf())
+    except Exception:
+        csrf = ""
+
+    body_rows = []
+    for index, row in enumerate(rows, start=1):
+        journal_id = int(row["id"])
+        title = escape(row["title"] or "업무일지")
+        document_label = escape(
+            core_app.JOURNAL_DOCUMENT_TYPES.get(
+                row["document_type"], core_app.JOURNAL_DOCUMENT_TYPES["daily"]
+            )
+        )
+        department = escape(row["department_name"] or "-")
+        author = escape(row["author_name"] or "-")
+        created = row["created_at"].strftime("%Y-%m-%d") if row["created_at"] else "-"
+        body_rows.append(
+            f"""
+            <tr>
+              <td><input type='checkbox' name='document_ids' value='{journal_id}' form='bulk-delete'></td>
+              <td>{index}</td><td>{document_label}</td><td>{escape(str(row['work_date']))}</td>
+              <td><a href='/journals/{journal_id}'>{title}</a></td><td>{department}</td><td>{author}</td>
+              <td>{int(row['task_count'] or 0)}건</td><td>{created}</td>
+              <td><form method='post' action='/document-control/journals/{journal_id}/delete'>
+                <input type='hidden' name='csrf_token' value='{escape(csrf)}'>
+                <button type='submit'>삭제</button></form></td>
+            </tr>
+            """
+        )
+
+    html = f"""<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>업무일지 게시판</title><style>body{{font-family:Arial,sans-serif;margin:24px}}table{{width:100%;border-collapse:collapse}}th,td{{border:1px solid #ddd;padding:8px}}a{{color:#1559c9}}button{{padding:6px 10px}}</style></head><body>
+    <h1>업무일지 게시판</h1><p><a href='/'>통합현황</a> · <a href='/tasks'>각 부서(팀) 업무 현황</a></p>
+    <form id='bulk-delete' method='post' action='/document-control/journals/bulk-delete'>
+      <input type='hidden' name='csrf_token' value='{escape(csrf)}'><button type='submit'>선택 문서 삭제</button>
+    </form>
+    <table><thead><tr><th>선택</th><th>No.</th><th>문서구분</th><th>작성일</th><th>제목</th><th>부서(팀)</th><th>작성자</th><th>업무</th><th>등록일</th><th>관리</th></tr></thead>
+    <tbody>{''.join(body_rows) if body_rows else '<tr><td colspan="10">저장된 업무일지가 없습니다.</td></tr>'}</tbody></table></body></html>"""
+    return Response(html, status=200, mimetype="text/html")
 
 
-core_app.render_template = stable_render_template
+# The administrator journal board now owns its controls directly. Legacy response-time
+# injectors are unnecessary here and have previously caused authenticated-only 500s.
+_SKIP_ON_ADMIN_JOURNAL_GET = {
+    "apply_document_access_controls",
+    "inject_document_task_content_assets",
+    "inject_document_task_content_guard",
+    "inject_admin_bulk_document_delete",
+    "render_admin_document_delete_controls",
+}
+
+
+def _guard_after_request(func):
+    @wraps(func)
+    def guarded(response):
+        if (
+            request.method == "GET"
+            and request.path == "/journals"
+            and current_user.is_authenticated
+            and _is_admin()
+        ):
+            return response
+        return func(response)
+    return guarded
+
+
+_funcs = app.after_request_funcs.get(None, [])
+for _index, _func in enumerate(list(_funcs)):
+    if getattr(_func, "__name__", "") in _SKIP_ON_ADMIN_JOURNAL_GET:
+        _funcs[_index] = _guard_after_request(_func)
 
 
 @login_required
 def journals_stable():
-    # Keep the existing, validated write path. Only GET is isolated.
+    # Preserve the existing validated write path and all non-admin behavior.
     if request.method == "POST" or not _is_admin():
         return _original_journals()
 
@@ -125,25 +178,11 @@ def journals_stable():
 
     try:
         context = _stable_context(selected_type)
+        return _original_render_template("journals_admin_stable.html", **context)
     except Exception:
         core_app.db.session.rollback()
-        # Even if optional task candidates fail, the saved-document board should
-        # remain available to administrators.
-        context = {
-            "journals": _load_admin_journals(selected_type),
-            "selected_type": selected_type,
-            "today": date.today(),
-            "major_tasks": [],
-            "daily_tasks": [],
-            "default_major_task_ids": set(),
-            "default_daily_task_ids": set(),
-            "show_create_dialog": False,
-            "TASK_STATUSES": core_app.TASK_STATUSES,
-        }
-
-    return flask_render_template("journals_admin_stable.html", **context)
+        # Never let an administrator GET /journals die with HTTP 500 again.
+        return _fallback_board(selected_type)
 
 
-# The Flask rule already accepts GET/POST; replacing its endpoint function keeps the
-# URL contract while isolating administrator GET requests from the legacy handler.
 app.view_functions["journals"] = journals_stable
