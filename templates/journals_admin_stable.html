@@ -9,7 +9,7 @@
 
 {% macro task_picker(document_type, tasks, selected_ids) %}
 <section class="journal-fields" data-journal-fields="{{ document_type }}">
-  <div class="meeting-task-head"><div><h3>{{ '주요 업무 추가' if document_type == 'major' else '일일업무 추가' }}</h3><p>등록된 담당 업무 중 문서에 포함할 업무만 선택하세요.</p></div></div>
+  <div class="meeting-task-head"><div><h3>{{ '주요 업무 추가' if document_type == 'major' else '일일업무 추가' }}</h3><p>각 부서(팀) 업무 현황 또는 업무등록에서 선택한 업무만 문서에 추가됩니다.</p></div></div>
   <div data-journal-task-picker>
     <div class="journal-task-filter"><label>업무 검색<input type="search" data-journal-task-search placeholder="업무명·내용 검색"></label><label>상태<select data-journal-task-status><option value="">전체 상태</option>{% for status in TASK_STATUSES %}<option value="{{ status }}">{{ status }}</option>{% endfor %}</select></label></div>
     <div class="meeting-task-selection-bar"><span><b data-journal-selected-count>0</b>건의 업무를 문서에 추가합니다.</span><button class="button ghost small" type="button" data-journal-clear-tasks>선택 해제</button></div>
@@ -20,7 +20,7 @@
         <span><strong>{{ task.title }}</strong><small>목표 {{ task.target_date }} · {{ task.display_assignees or '-' }}</small></span>
         <span class="status {{ task.status_class or 'progress' }}">{{ task.status }} · {{ task.progress }}%</span>
       </label>
-      {% else %}<p class="empty">추가할 수 있는 담당 업무가 없습니다.</p>{% endfor %}
+      {% else %}<p class="empty">현재 선택된 관련 업무가 없습니다. 각 부서(팀) 업무 현황 또는 업무등록에서 업무를 추가해 주세요.</p>{% endfor %}
       <p class="empty" data-journal-task-empty hidden>조건에 맞는 업무가 없습니다.</p>
     </div>
   </div>
@@ -45,44 +45,49 @@
 
 <section class="panel meeting-board-panel journal-board-panel">
   <div class="panel-head">
-    <div><h2>저장된 업무일지</h2><p>제목을 선택하면 업무일지 상세 페이지에서 내용을 확인할 수 있습니다.</p></div>
+    <div><h2>저장된 업무일지</h2><p>제목을 선택하면 상세 페이지에서 저장 당시 내용을 확인할 수 있습니다.</p></div>
     <div class="button-row" style="align-items:center">
       <strong>{{ journals|length }}건</strong>
+      {% if is_admin_user %}
       <form id="admin-journal-bulk-delete-form" method="post" action="/document-control/journals/bulk-delete" onsubmit="return confirm('선택한 업무일지 문서를 삭제하시겠습니까? 연결된 원본 업무는 삭제되지 않습니다.');">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <span class="permission-muted" data-journal-admin-selected-label>선택 0건</span>
         <button class="button danger small" type="submit" data-journal-admin-bulk-delete disabled><span>선택 문서 삭제</span></button>
       </form>
+      {% endif %}
     </div>
   </div>
 
   <div class="table-wrap">
-    <table class="meeting-board-table journal-board-table" data-admin-delete-ready="true">
+    <table class="meeting-board-table journal-board-table"{% if is_admin_user %} data-admin-delete-ready="true"{% endif %}>
       <thead><tr>
-        <th style="width:44px"><input type="checkbox" data-journal-admin-select-all aria-label="업무일지 전체 선택" title="전체 선택"></th>
-        <th>No.</th><th>문서구분</th><th>작성일</th><th>제목</th><th>부서(팀)</th><th>작성자</th><th>업무</th><th>등록일</th><th style="width:60px">관리</th>
+        {% if is_admin_user %}<th style="width:44px"><input type="checkbox" data-journal-admin-select-all aria-label="업무일지 전체 선택" title="전체 선택"></th>{% endif %}
+        <th>No.</th><th>문서구분</th><th>작성일</th><th>제목</th><th>부서(팀)</th><th>작성자</th><th>업무</th><th>등록일</th>
+        {% if is_admin_user %}<th style="width:60px">관리</th>{% endif %}
       </tr></thead>
       <tbody>
       {% for item in journals %}
         <tr>
-          <td><input type="checkbox" name="document_ids" value="{{ item.id }}" form="admin-journal-bulk-delete-form" data-journal-admin-check aria-label="업무일지 선택"></td>
+          {% if is_admin_user %}<td><input type="checkbox" name="document_ids" value="{{ item.id }}" form="admin-journal-bulk-delete-form" data-journal-admin-check aria-label="업무일지 선택"></td>{% endif %}
           <td>{{ loop.index }}</td>
           <td><span class="journal-document-badge {{ item.document_type }}">{{ item.document_label }}</span></td>
           <td>{{ item.work_date }}</td>
           <td><a class="meeting-board-open" href="/journals/{{ item.id }}"><strong>{{ item.title }}</strong><small>상세보기</small></a></td>
-          <td>{{ item.department_name if item.department_name is defined else (item.department.name if item.department else '-') }}</td>
-          <td>{{ item.author_name if item.author_name is defined else (item.author.name if item.author else '-') }}</td>
-          <td>{{ item.task_count if item.task_count is defined else item.tasks|length }}건</td>
+          <td>{{ item.department_name }}</td>
+          <td>{{ item.author_name }}</td>
+          <td>{{ item.task_count }}건</td>
           <td>{{ item.created_at.strftime('%Y-%m-%d') if item.created_at else '-' }}</td>
+          {% if is_admin_user %}
           <td>
             <form method="post" action="/document-control/journals/{{ item.id }}/delete" onsubmit="return confirm('이 업무일지 문서를 삭제하시겠습니까? 연결된 원본 업무는 삭제되지 않습니다.');">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button class="button danger small" type="submit" title="삭제" aria-label="업무일지 삭제">삭제</button>
             </form>
           </td>
+          {% endif %}
         </tr>
       {% else %}
-        <tr><td class="empty" colspan="10">저장된 업무일지가 없습니다.</td></tr>
+        <tr><td class="empty" colspan="{{ 10 if is_admin_user else 8 }}">저장된 업무일지가 없습니다.</td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -104,6 +109,7 @@
   </div>
 </dialog>
 
+{% if is_admin_user %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   const all = document.querySelector('[data-journal-admin-select-all]');
@@ -131,4 +137,5 @@ document.addEventListener('DOMContentLoaded', function () {
   update();
 });
 </script>
+{% endif %}
 {% endblock %}
