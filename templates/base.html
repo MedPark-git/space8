@@ -6,9 +6,8 @@
   <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block title %}경영사업본부 각 부서(팀) 업무 현황{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260904-work-category-hierarchy') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='work_category_manager.css', v='20260905-department-category-manager') }}">
 </head>
-<body class="{% block body_class %}{% endblock %}"{% if current_user.is_authenticated %} data-current-department-id="{{ current_user.department_id }}" data-current-role="{{ current_user.role.name }}" data-effective-admin="{{ 'true' if (current_user.role.name in ['관리자', '시스템관리자'] or '관리자' in current_user.role.name or current_user.role.allows('admin') or current_user.role.allows('task_manage_all')) else 'false' }}"{% endif %}>
+<body class="{% block body_class %}{% endblock %}"{% if current_user.is_authenticated %} data-current-department-id="{{ current_user.department_id }}" data-current-role="{{ current_user.role.name }}"{% endif %}>
   {% if current_user.is_authenticated %}
   <header class="topbar">
     <a class="brand" href="{{ url_for('dashboard') }}">
@@ -18,8 +17,7 @@
     <button class="nav-toggle" type="button" aria-label="메뉴 열기">☰</button>
     <nav class="main-nav">
       {% for menu in visible_menus %}
-      {% set menu_href = '/wj-260906-r1' if menu.name == '업무일지' else menu.url %}
-      <a href="{{ menu_href }}" class="{{ 'active' if request.path == menu_href or (menu.name == '업무일지' and request.path.startswith('/wj-260906-r1')) or (menu_href != '/' and request.path.startswith(menu_href)) else '' }}">{{ menu.name }}</a>
+      <a href="{{ menu.url }}" class="{{ 'active' if request.path == menu.url or (menu.url != '/' and request.path.startswith(menu.url)) else '' }}">{{ menu.name }}</a>
       {% endfor %}
     </nav>
     <div class="user-menu">
@@ -43,16 +41,8 @@
     {% block content %}{% endblock %}
   </main>
   <script src="{{ url_for('static', filename='app.js', v='20260904-work-category-hierarchy') }}" defer></script>
-  <script src="{{ url_for('static', filename='work_category_manager.js', v='20260905-department-category-manager') }}" defer></script>
-  <script src="{{ url_for('static', filename='document_task_linker.js', v='20260905-document-task-linker-v2') }}" defer></script>
-  <script src="{{ url_for('static', filename='admin_bulk_document_delete.js', v='20260906-admin-bulk-delete-v5') }}" defer></script>
-  <script src="{{ url_for('static', filename='admin_journal_preview.js', v='20260906-admin-journal-preview-v4') }}" defer></script>
   <script>
     document.addEventListener('DOMContentLoaded', function () {
-      document.querySelectorAll('.main-nav a').forEach(function (link) {
-        if (link.textContent.trim() === '업무일지') link.setAttribute('href', '/wj-260906-r1');
-      });
-
       if (!window.location.pathname.startsWith('/tasks')) return;
 
       document.querySelectorAll('label').forEach(function (label) {
