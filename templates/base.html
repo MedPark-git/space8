@@ -18,8 +18,10 @@
     <button class="nav-toggle" type="button" aria-label="메뉴 열기">☰</button>
     <nav class="main-nav">
       {% for menu in visible_menus %}
-      {% set menu_href = '/wj-260906-r1' if menu.name == '업무일지' else menu.url %}
-      <a href="{{ menu_href }}" class="{{ 'active' if request.path == menu_href or (menu.name == '업무일지' and request.path.startswith('/wj-260906-r1')) or (menu_href != '/' and request.path.startswith(menu_href)) else '' }}">{{ menu.name }}</a>
+      {% set is_journal_menu = menu.name == '업무일지' %}
+      {% set menu_href = '/tasks?journal_board=1' if is_journal_menu else menu.url %}
+      {% set menu_active = (is_journal_menu and request.path == '/tasks' and request.args.get('journal_board') == '1') or (not is_journal_menu and (request.path == menu.url or (menu.url != '/' and request.path.startswith(menu.url)))) %}
+      <a href="{{ menu_href }}" class="{{ 'active' if menu_active else '' }}">{{ menu.name }}</a>
       {% endfor %}
     </nav>
     <div class="user-menu">
@@ -50,7 +52,7 @@
   <script>
     document.addEventListener('DOMContentLoaded', function () {
       document.querySelectorAll('.main-nav a').forEach(function (link) {
-        if (link.textContent.trim() === '업무일지') link.setAttribute('href', '/wj-260906-r1');
+        if (link.textContent.trim() === '업무일지') link.setAttribute('href', '/tasks?journal_board=1');
       });
 
       if (!window.location.pathname.startsWith('/tasks')) return;
