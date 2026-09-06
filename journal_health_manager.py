@@ -10,12 +10,7 @@ app = stable.app
 @app.get('/__health/journals-all-users')
 def journals_all_users_health():
     users = core_app.db.session.scalars(
-        select(core_app.Employee)
-        .where(
-            core_app.Employee.status == '재직',
-            core_app.Employee.approval_status == '승인완료',
-        )
-        .order_by(core_app.Employee.id)
+        select(core_app.Employee).order_by(core_app.Employee.id)
     ).all()
 
     failures = 0
