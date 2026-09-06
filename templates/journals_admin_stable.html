@@ -1,5 +1,34 @@
 {% extends "base.html" %}
-{% from "journals.html" import journal_type_selector, task_picker with context %}
+
+{% macro journal_type_selector(selected_type) %}
+<div class="journal-type-selector" role="radiogroup" aria-label="업무일지 문서 선택">
+  <label class="journal-type-card"><input type="radio" name="document_type" value="major" {{ 'checked' if selected_type == 'major' else '' }}><span><b>주요 업무</b><small>핵심 업무의 현황과 향후 계획을 정리합니다.</small></span></label>
+  <label class="journal-type-card"><input type="radio" name="document_type" value="daily" {{ 'checked' if selected_type == 'daily' else '' }}><span><b>일일업무 일지</b><small>오늘 수행한 업무와 다음 계획을 기록합니다.</small></span></label>
+</div>
+{% endmacro %}
+
+{% macro task_picker(document_type, tasks, selected_ids) %}
+<section class="journal-fields" data-journal-fields="{{ document_type }}">
+  <div class="meeting-task-head"><div><h3>{{ '주요 업무 추가' if document_type == 'major' else '일일업무 추가' }}</h3><p>등록된 담당 업무 중 문서에 포함할 업무만 선택하세요.</p></div></div>
+  <div data-journal-task-picker>
+    <div class="journal-task-filter"><label>업무 검색<input type="search" data-journal-task-search placeholder="업무명·내용 검색"></label><label>상태<select data-journal-task-status><option value="">전체 상태</option>{% for status in TASK_STATUSES %}<option value="{{ status }}">{{ status }}</option>{% endfor %}</select></label></div>
+    <div class="meeting-task-selection-bar"><span><b data-journal-selected-count>0</b>건의 업무를 문서에 추가합니다.</span><button class="button ghost small" type="button" data-journal-clear-tasks>선택 해제</button></div>
+    <div class="select-task-list journal-task-list">
+      {% for task in tasks %}
+      <label data-journal-task-row data-status="{{ task.status }}" data-search-text="{{ task.title }} {{ task.content or '' }} {{ task.display_assignees or '' }}">
+        <input type="checkbox" name="task_ids" value="{{ task.id }}" {{ 'checked' if task.id in selected_ids or task.id|string in selected_ids else '' }}>
+        <span><strong>{{ task.title }}</strong><small>목표 {{ task.target_date }} · {{ task.display_assignees or '-' }}</small></span>
+        <span class="status {{ task.status_class or 'progress' }}">{{ task.status }} · {{ task.progress }}%</span>
+      </label>
+      {% else %}<p class="empty">추가할 수 있는 담당 업무가 없습니다.</p>{% endfor %}
+      <p class="empty" data-journal-task-empty hidden>조건에 맞는 업무가 없습니다.</p>
+    </div>
+  </div>
+  <label>{{ '주요 업무 진행 요약' if document_type == 'major' else '금일 진행 내용' }}<textarea name="work_summary" rows="7" placeholder="{{ '핵심 진행사항과 현재 상태를 작성해 주세요.' if document_type == 'major' else '오늘 수행한 업무와 결과를 작성해 주세요.' }}">{{ request.form.get('work_summary', '') }}</textarea></label>
+  <label>{{ '향후 추진 계획' if document_type == 'major' else '익일·향후 계획' }}<textarea name="next_plan" rows="5" placeholder="담당자와 기한을 포함해 작성해 주세요.">{{ request.form.get('next_plan', '') }}</textarea></label>
+  <label>특이사항<textarea name="special_notes" rows="3" placeholder="공유하거나 지원이 필요한 사항을 작성해 주세요.">{{ request.form.get('special_notes', '') }}</textarea></label>
+</section>
+{% endmacro %}
 
 {% block content %}
 {% set form_type = request.form.get('document_type', 'daily') %}
@@ -9,9 +38,9 @@
 </div>
 
 <nav class="journal-board-tabs" aria-label="업무일지 문서 구분">
-  <a class="{{ 'active' if not selected_type }}" href="{{ url_for('journals') }}">전체</a>
-  <a class="{{ 'active' if selected_type == 'major' }}" href="{{ url_for('journals', document_type='major') }}">주요 업무</a>
-  <a class="{{ 'active' if selected_type == 'daily' }}" href="{{ url_for('journals', document_type='daily') }}">일일업무 일지</a>
+  <a class="{{ 'active' if not selected_type }}" href="/journals">전체</a>
+  <a class="{{ 'active' if selected_type == 'major' }}" href="/journals?document_type=major">주요 업무</a>
+  <a class="{{ 'active' if selected_type == 'daily' }}" href="/journals?document_type=daily">일일업무 일지</a>
 </nav>
 
 <section class="panel meeting-board-panel journal-board-panel">
@@ -22,10 +51,7 @@
       <form id="admin-journal-bulk-delete-form" method="post" action="/document-control/journals/bulk-delete" onsubmit="return confirm('선택한 업무일지 문서를 삭제하시겠습니까? 연결된 원본 업무는 삭제되지 않습니다.');">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <span class="permission-muted" data-journal-admin-selected-label>선택 0건</span>
-        <button class="button danger small" type="submit" data-journal-admin-bulk-delete disabled>
-          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>
-          <span>선택 문서 삭제</span>
-        </button>
+        <button class="button danger small" type="submit" data-journal-admin-bulk-delete disabled><span>선택 문서 삭제</span></button>
       </form>
     </div>
   </div>
@@ -43,17 +69,15 @@
           <td>{{ loop.index }}</td>
           <td><span class="journal-document-badge {{ item.document_type }}">{{ item.document_label }}</span></td>
           <td>{{ item.work_date }}</td>
-          <td><a class="meeting-board-open" href="{{ url_for('journal_detail', journal_id=item.id) }}"><strong>{{ item.title }}</strong><small>상세보기</small></a></td>
-          <td>{{ item.department.name }}</td>
-          <td>{{ item.author.name }}</td>
-          <td>{{ item.tasks|length }}건</td>
-          <td>{{ item.created_at.strftime('%Y-%m-%d') }}</td>
+          <td><a class="meeting-board-open" href="/journals/{{ item.id }}"><strong>{{ item.title }}</strong><small>상세보기</small></a></td>
+          <td>{{ item.department_name if item.department_name is defined else (item.department.name if item.department else '-') }}</td>
+          <td>{{ item.author_name if item.author_name is defined else (item.author.name if item.author else '-') }}</td>
+          <td>{{ item.task_count if item.task_count is defined else item.tasks|length }}건</td>
+          <td>{{ item.created_at.strftime('%Y-%m-%d') if item.created_at else '-' }}</td>
           <td>
             <form method="post" action="/document-control/journals/{{ item.id }}/delete" onsubmit="return confirm('이 업무일지 문서를 삭제하시겠습니까? 연결된 원본 업무는 삭제되지 않습니다.');">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="button danger small" type="submit" title="삭제" aria-label="업무일지 삭제" style="min-width:36px;padding:7px 9px">
-                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>
-              </button>
+              <button class="button danger small" type="submit" title="삭제" aria-label="업무일지 삭제">삭제</button>
             </form>
           </td>
         </tr>
@@ -67,14 +91,14 @@
 
 <dialog id="journal-compose-dialog" class="meeting-compose-dialog journal-compose-dialog" {% if show_create_dialog %}data-open-on-load{% endif %}>
   <div class="meeting-compose-shell">
-    <div class="meeting-compose-head"><div><span class="eyebrow">NEW WORK JOURNAL</span><h2>업무일지 작성</h2><p>문서 종류를 선택하고 내 담당 업무를 추가해 저장합니다.</p></div><button type="button" data-close aria-label="작성 창 닫기">×</button></div>
+    <div class="meeting-compose-head"><div><span class="eyebrow">NEW WORK JOURNAL</span><h2>업무일지 작성</h2><p>문서 종류를 선택하고 필요한 업무만 추가해 저장합니다.</p></div><button type="button" data-close aria-label="작성 창 닫기">×</button></div>
     <form method="post" data-journal-document-form>
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       {{ journal_type_selector(form_type) }}
       <div class="meeting-form-meta"><label>작성일<input type="date" name="work_date" value="{{ request.form.get('work_date', today.isoformat()) }}" required></label><label>문서 제목<input type="text" name="title" maxlength="200" value="{{ request.form.get('title', '') }}" placeholder="미입력 시 날짜·작성자·문서구분으로 자동 생성"></label></div>
       {{ task_picker('major', major_tasks, request.form.getlist('task_ids') if request.method == 'POST' and form_type == 'major' else default_major_task_ids) }}
       {{ task_picker('daily', daily_tasks, request.form.getlist('task_ids') if request.method == 'POST' and form_type == 'daily' else default_daily_task_ids) }}
-      <div class="journal-privacy-note" data-journal-privacy-note><strong>일일업무 일지 열람 범위</strong><span>본인 · 같은 부서(팀)의 팀장 · 부서장만 열람할 수 있으며, 관리자는 전체 자료를 관리할 수 있습니다.</span></div>
+      <div class="journal-privacy-note" data-journal-privacy-note><strong>일일업무 일지 열람 범위</strong><span>본인 · 같은 부서(팀)의 팀장 · 부서장 · 관리자가 열람할 수 있습니다.</span></div>
       <div class="form-actions"><button class="button ghost" type="button" data-close>취소</button><button class="button primary" type="submit">저장하고 게시판에서 보기</button></div>
     </form>
   </div>
