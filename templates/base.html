@@ -64,6 +64,15 @@
       document.querySelectorAll('table thead th').forEach(function (header) {
         if (header.textContent.trim() === '업무') header.textContent = '업무명';
       });
+
+      if (window.location.pathname === '/tasks/new') {
+        const formGrid = document.querySelector('form.form-panel .form-grid');
+        const categoryBlock = formGrid?.querySelector('.work-category-form');
+        const titleLabel = formGrid?.querySelector('input[name="title"]')?.closest('label');
+        if (formGrid && categoryBlock && titleLabel) {
+          formGrid.insertBefore(categoryBlock, titleLabel);
+        }
+      }
     });
   </script>
 </body>
