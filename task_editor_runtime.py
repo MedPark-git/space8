@@ -314,6 +314,17 @@ class TaskCategoryTransportMiddleware:
     def __call__(self, environ, start_response):
         path = str(environ.get("PATH_INFO") or "").rstrip("/")
         method = str(environ.get("REQUEST_METHOD") or "").upper()
+        if path == "/__health/task-category-transport-v6-wsgi" and method == "GET":
+            body = b'{"ok":true,"transport":"task-category-transport-v6","layer":"outer-wsgi-middleware"}'
+            start_response(
+                "200 OK",
+                [
+                    ("Content-Type", "application/json; charset=utf-8"),
+                    ("Content-Length", str(len(body))),
+                    ("Cache-Control", "no-store"),
+                ],
+            )
+            return [body]
         if path != "/tasks/new" or method != "POST":
             return self.flask_app(environ, start_response)
 
