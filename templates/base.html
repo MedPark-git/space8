@@ -41,6 +41,7 @@
     {% block content %}{% endblock %}
   </main>
   <script src="{{ url_for('static', filename='app.js', v='20260904-work-category-hierarchy') }}" defer></script>
+  <script src="{{ url_for('static', filename='live_document_preview.js', v='20260907-live-preview-v1') }}" defer></script>
   <script>
     document.addEventListener('DOMContentLoaded', function () {
       if (!window.location.pathname.startsWith('/tasks')) return;
