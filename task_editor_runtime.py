@@ -1,40 +1,36 @@
-import io
-from urllib.parse import parse_qs
+from functools import wraps
 
-from flask import jsonify, request
-from flask_login import current_user
+from flask import flash, redirect, request, url_for, jsonify
+from flask_login import current_user, login_required
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 import app as core
 
 FLASK_APP = core.app
-TRANSPORT_VERSION = "task-category-transport-v6"
-ALLOWED_ACTIONS = {"list", "add", "rename_middle", "rename_small"}
-
-
-def _json_response(payload, status=200):
-    return jsonify({"transport": TRANSPORT_VERSION, **payload}), status
-
-
-def _json_error(message, status=400, code=None):
-    payload = {"ok": False, "message": message}
-    if code:
-        payload["code"] = code
-    return _json_response(payload, status)
-
-
-def _json_ok(message="", **extra):
-    payload = {"ok": True, **extra}
-    if message:
-        payload["message"] = message
-    return _json_response(payload)
+TRANSPORT_VERSION = "task-category-form-v7"
 
 
 def _is_admin():
     return bool(
         current_user.is_authenticated
-        and (current_user.role.name == "관리자" or current_user.role.allows("task_manage_all"))
+        and (
+            current_user.role.name == "관리자"
+            or current_user.role.allows("task_manage_all")
+        )
+    )
+
+
+def _redirect_manager(message, category="success", middle_name="", category_id=""):
+    flash(message, category)
+    return redirect(
+        url_for(
+            "task_new",
+            category_manager="1",
+            category_result=category,
+            category_middle=middle_name or None,
+            category_id=category_id or None,
+        )
     )
 
 
@@ -44,50 +40,33 @@ def _allowed_department(department_id):
     except (TypeError, ValueError):
         department_id = 0
     if not department_id:
-        return None, _json_error("대분류(부서·팀)를 선택해 주세요.", 400, "DEPARTMENT_REQUIRED")
+        return None, _redirect_manager("대분류(부서·팀)를 확인해 주세요.", "error")
+
     department = core.db.session.get(core.Department, department_id)
     if not department or not department.active:
-        return None, _json_error("사용 가능한 부서(팀)를 찾을 수 없습니다.", 404, "DEPARTMENT_NOT_FOUND")
+        return None, _redirect_manager("사용 가능한 부서(팀)를 찾을 수 없습니다.", "error")
+
     if not _is_admin() and current_user.department_id != department.id:
-        return None, _json_error(
+        return None, _redirect_manager(
             "본인 소속 부서(팀)의 중분류·소분류만 관리할 수 있습니다.",
-            403,
-            "CATEGORY_FORBIDDEN",
+            "error",
         )
     return department, None
-
-
-def _visible_categories():
-    rows = (
-        core.active_work_categories()
-        if _is_admin()
-        else core.active_work_categories([current_user.department_id])
-    )
-    return core.build_work_category_catalog(rows)
-
-
-def _category_payload(category):
-    return {
-        "id": category.id,
-        "department_id": category.department_id,
-        "department_name": category.department.name,
-        "middle_name": category.middle_name,
-        "small_name": category.small_name or "",
-    }
 
 
 def _handle_add():
     department, error = _allowed_department(request.form.get("department_id"))
     if error:
         return error
+
     middle_name = str(request.form.get("middle_name") or "").strip()
     small_name = str(request.form.get("small_name") or "").strip()
     if not middle_name:
-        return _json_error("중분류명을 확인해 주세요.", 400, "MIDDLE_REQUIRED")
+        return _redirect_manager("중분류명을 확인해 주세요.", "error")
     if len(middle_name) > 100:
-        return _json_error("중분류명은 100자 이하로 입력해 주세요.", 400, "MIDDLE_TOO_LONG")
+        return _redirect_manager("중분류명은 100자 이하로 입력해 주세요.", "error")
     if len(small_name) > 150:
-        return _json_error("소분류명은 150자 이하로 입력해 주세요.", 400, "SMALL_TOO_LONG")
+        return _redirect_manager("소분류명은 150자 이하로 입력해 주세요.", "error")
 
     category = core.db.session.scalar(
         select(core.WorkCategory).where(
@@ -96,12 +75,13 @@ def _handle_add():
             core.WorkCategory.small_name == small_name,
         )
     )
+
     if category and category.active:
-        return _json_ok(
-            "이미 등록된 업무구분입니다. 저장된 기초자료를 다시 불러왔습니다.",
-            category=_category_payload(category),
-            categories=_visible_categories(),
-            duplicate=True,
+        return _redirect_manager(
+            "이미 등록된 업무구분입니다. 저장된 항목을 선택했습니다.",
+            "success",
+            middle_name,
+            category.id,
         )
 
     created = category is None
@@ -123,6 +103,7 @@ def _handle_add():
             f"work-category:{category.id}",
             {
                 "department_id": department.id,
+                "department_name": department.name,
                 "middle_name": middle_name,
                 "small_name": small_name,
                 "source": TRANSPORT_VERSION,
@@ -131,33 +112,44 @@ def _handle_add():
         core.db.session.commit()
     except IntegrityError:
         core.db.session.rollback()
-        return _json_error("동일한 업무구분이 이미 존재합니다.", 409, "CATEGORY_CONFLICT")
+        existing = core.db.session.scalar(
+            select(core.WorkCategory).where(
+                core.WorkCategory.department_id == department.id,
+                core.WorkCategory.middle_name == middle_name,
+                core.WorkCategory.small_name == small_name,
+            )
+        )
+        if existing:
+            return _redirect_manager(
+                "이미 등록된 업무구분입니다. 저장된 항목을 선택했습니다.",
+                "success",
+                middle_name,
+                existing.id,
+            )
+        return _redirect_manager("업무구분 저장 중 충돌이 발생했습니다. 다시 시도해 주세요.", "error")
     except Exception as exc:
         core.db.session.rollback()
-        return _json_error(
+        return _redirect_manager(
             f"업무구분 등록 중 오류가 발생했습니다. ({type(exc).__name__})",
-            500,
-            "CATEGORY_ADD_ERROR",
+            "error",
         )
-    return _json_ok(
-        "업무구분을 등록했습니다.",
-        category=_category_payload(category),
-        categories=_visible_categories(),
-    )
+
+    return _redirect_manager("업무구분을 등록했습니다.", "success", middle_name, category.id)
 
 
 def _handle_rename_middle():
     department, error = _allowed_department(request.form.get("department_id"))
     if error:
         return error
+
     old_name = str(request.form.get("old_middle_name") or "").strip()
     new_name = str(request.form.get("new_middle_name") or "").strip()
     if not old_name or not new_name:
-        return _json_error("수정할 중분류와 새 중분류명을 확인해 주세요.", 400, "MIDDLE_REQUIRED")
+        return _redirect_manager("수정할 중분류와 새 중분류명을 확인해 주세요.", "error")
     if len(new_name) > 100:
-        return _json_error("중분류명은 100자 이하로 입력해 주세요.", 400, "MIDDLE_TOO_LONG")
+        return _redirect_manager("중분류명은 100자 이하로 입력해 주세요.", "error")
     if old_name == new_name:
-        return _json_ok("변경된 내용이 없습니다.", categories=_visible_categories())
+        return _redirect_manager("변경된 내용이 없습니다.", "success", new_name)
 
     rows = core.db.session.scalars(
         select(core.WorkCategory).where(
@@ -167,7 +159,7 @@ def _handle_rename_middle():
         )
     ).all()
     if not rows:
-        return _json_error("수정할 중분류를 찾을 수 없습니다.", 404, "MIDDLE_NOT_FOUND")
+        return _redirect_manager("수정할 중분류를 찾을 수 없습니다.", "error")
 
     row_ids = {row.id for row in rows}
     small_names = {row.small_name for row in rows}
@@ -182,10 +174,10 @@ def _handle_rename_middle():
         .limit(1)
     )
     if conflict:
-        return _json_error(
+        return _redirect_manager(
             "변경하려는 중분류명에 동일한 소분류가 이미 존재합니다.",
-            409,
-            "MIDDLE_CONFLICT",
+            "error",
+            old_name,
         )
 
     try:
@@ -195,6 +187,8 @@ def _handle_rename_middle():
             "TASK_WORK_CATEGORY_MIDDLE_RENAME",
             f"department:{department.id}",
             {
+                "department_id": department.id,
+                "department_name": department.name,
                 "previous_middle_name": old_name,
                 "new_middle_name": new_name,
                 "category_ids": sorted(row_ids),
@@ -204,19 +198,16 @@ def _handle_rename_middle():
         core.db.session.commit()
     except IntegrityError:
         core.db.session.rollback()
-        return _json_error(
-            "중복된 업무구분이 있어 중분류명을 수정할 수 없습니다.",
-            409,
-            "MIDDLE_CONFLICT",
-        )
+        return _redirect_manager("중복된 업무구분이 있어 중분류명을 수정할 수 없습니다.", "error", old_name)
     except Exception as exc:
         core.db.session.rollback()
-        return _json_error(
+        return _redirect_manager(
             f"중분류 수정 중 오류가 발생했습니다. ({type(exc).__name__})",
-            500,
-            "MIDDLE_RENAME_ERROR",
+            "error",
+            old_name,
         )
-    return _json_ok("중분류명을 수정했습니다.", categories=_visible_categories())
+
+    return _redirect_manager("중분류명을 수정했습니다.", "success", new_name)
 
 
 def _handle_rename_small():
@@ -226,20 +217,21 @@ def _handle_rename_small():
         category_id = 0
     new_name = str(request.form.get("new_small_name") or "").strip()
     if not category_id or not new_name:
-        return _json_error("수정할 소분류와 새 소분류명을 확인해 주세요.", 400, "SMALL_REQUIRED")
+        return _redirect_manager("수정할 소분류와 새 소분류명을 확인해 주세요.", "error")
     if len(new_name) > 150:
-        return _json_error("소분류명은 150자 이하로 입력해 주세요.", 400, "SMALL_TOO_LONG")
+        return _redirect_manager("소분류명은 150자 이하로 입력해 주세요.", "error")
 
     category = core.db.session.get(core.WorkCategory, category_id)
     if not category or not category.active:
-        return _json_error("수정할 소분류를 찾을 수 없습니다.", 404, "SMALL_NOT_FOUND")
+        return _redirect_manager("수정할 소분류를 찾을 수 없습니다.", "error")
+
     department, error = _allowed_department(category.department_id)
     if error:
         return error
     if not category.small_name:
-        return _json_error("소분류 미지정 항목은 수정할 수 없습니다.", 400, "SMALL_PLACEHOLDER")
+        return _redirect_manager("소분류 미지정 항목은 수정할 수 없습니다.", "error", category.middle_name)
     if category.small_name == new_name:
-        return _json_ok("변경된 내용이 없습니다.", categories=_visible_categories())
+        return _redirect_manager("변경된 내용이 없습니다.", "success", category.middle_name, category.id)
 
     conflict = core.db.session.scalar(
         select(core.WorkCategory.id).where(
@@ -250,10 +242,11 @@ def _handle_rename_small():
         )
     )
     if conflict:
-        return _json_error(
+        return _redirect_manager(
             "같은 중분류 아래에 동일한 소분류가 이미 존재합니다.",
-            409,
-            "SMALL_CONFLICT",
+            "error",
+            category.middle_name,
+            category.id,
         )
 
     previous = category.small_name
@@ -263,6 +256,9 @@ def _handle_rename_small():
             "TASK_WORK_CATEGORY_SMALL_RENAME",
             f"work-category:{category.id}",
             {
+                "department_id": department.id,
+                "department_name": department.name,
+                "middle_name": category.middle_name,
                 "previous_small_name": previous,
                 "new_small_name": new_name,
                 "source": TRANSPORT_VERSION,
@@ -271,98 +267,56 @@ def _handle_rename_small():
         core.db.session.commit()
     except IntegrityError:
         core.db.session.rollback()
-        return _json_error(
-            "중복된 업무구분이 있어 소분류명을 수정할 수 없습니다.",
-            409,
-            "SMALL_CONFLICT",
-        )
+        return _redirect_manager("중복된 업무구분이 있어 소분류명을 수정할 수 없습니다.", "error", category.middle_name)
     except Exception as exc:
         core.db.session.rollback()
-        return _json_error(
+        return _redirect_manager(
             f"소분류 수정 중 오류가 발생했습니다. ({type(exc).__name__})",
-            500,
-            "SMALL_RENAME_ERROR",
+            "error",
+            category.middle_name,
         )
-    return _json_ok("소분류명을 수정했습니다.", categories=_visible_categories())
+
+    return _redirect_manager("소분류명을 수정했습니다.", "success", category.middle_name, category.id)
 
 
-HANDLERS = {
-    "list": lambda: _json_ok(categories=_visible_categories()),
+CATEGORY_HANDLERS = {
     "add": _handle_add,
     "rename_middle": _handle_rename_middle,
     "rename_small": _handle_rename_small,
 }
 
 
-@FLASK_APP.get("/__health/task-category-transport-v6")
-def task_category_transport_health():
+_original_task_new = FLASK_APP.view_functions.get("task_new")
+if _original_task_new is None:
+    raise RuntimeError("task_new view function을 찾을 수 없습니다.")
+
+
+@wraps(_original_task_new)
+@login_required
+def _task_new_v7(*args, **kwargs):
+    if request.method == "POST" and request.form.get("_category_transport") == "v7":
+        action = str(request.form.get("category_action") or "").strip()
+        handler = CATEGORY_HANDLERS.get(action)
+        if handler is None:
+            return _redirect_manager("지원하지 않는 업무구분 작업입니다.", "error")
+        return handler()
+    return _original_task_new(*args, **kwargs)
+
+
+FLASK_APP.view_functions["task_new"] = _task_new_v7
+
+
+@FLASK_APP.get("/__health/task-category-form-v7")
+def task_category_form_v7_health():
     return jsonify(
         {
             "ok": True,
             "transport": TRANSPORT_VERSION,
-            "path": "/tasks/new",
-            "detection": "query_header_or_form_body",
-            "actions": sorted(HANDLERS),
+            "route": "/tasks/new",
+            "mode": "standard_html_form_post",
+            "actions": sorted(CATEGORY_HANDLERS),
         }
     )
 
 
-class TaskCategoryTransportMiddleware:
-    def __init__(self, flask_app):
-        self.flask_app = flask_app
-
-    def __call__(self, environ, start_response):
-        path = str(environ.get("PATH_INFO") or "").rstrip("/")
-        method = str(environ.get("REQUEST_METHOD") or "").upper()
-        if path == "/__health/task-category-transport-v6-wsgi" and method == "GET":
-            body = b'{"ok":true,"transport":"task-category-transport-v6","layer":"outer-wsgi-middleware"}'
-            start_response(
-                "200 OK",
-                [
-                    ("Content-Type", "application/json; charset=utf-8"),
-                    ("Content-Length", str(len(body))),
-                    ("Cache-Control", "no-store"),
-                ],
-            )
-            return [body]
-        if path != "/tasks/new" or method != "POST":
-            return self.flask_app(environ, start_response)
-
-        try:
-            content_length = int(environ.get("CONTENT_LENGTH") or 0)
-        except (TypeError, ValueError):
-            content_length = 0
-        raw_body = environ.get("wsgi.input").read(content_length) if content_length > 0 else b""
-        environ["wsgi.input"] = io.BytesIO(raw_body)
-
-        query = parse_qs(str(environ.get("QUERY_STRING") or ""), keep_blank_values=True)
-        form = parse_qs(raw_body.decode("utf-8", errors="replace"), keep_blank_values=True)
-        query_action = str((query.get("category_action") or [""])[0]).strip()
-        body_action = str((form.get("category_action") or [""])[0]).strip()
-        header_action = str(environ.get("HTTP_X_TASK_CATEGORY_ACTION") or "").strip()
-        action = next((value for value in (header_action, query_action, body_action) if value), "")
-
-        query_transport = str((query.get("_category_transport") or [""])[0]).strip()
-        body_transport = str((form.get("_category_transport") or [""])[0]).strip()
-        header_transport = str(environ.get("HTTP_X_TASK_CATEGORY_TRANSPORT") or "").strip()
-        transport = next(
-            (value for value in (header_transport, query_transport, body_transport) if value),
-            "",
-        )
-
-        if action not in ALLOWED_ACTIONS or transport != "v6":
-            return self.flask_app(environ, start_response)
-
-        environ["wsgi.input"] = io.BytesIO(raw_body)
-        with self.flask_app.request_context(environ):
-            if not current_user.is_authenticated:
-                response = self.flask_app.make_response(
-                    _json_error("로그인이 필요합니다.", 401, "LOGIN_REQUIRED")
-                )
-            else:
-                core.csrf.protect()
-                response = self.flask_app.make_response(HANDLERS[action]())
-            return response(environ, start_response)
-
-
-app = TaskCategoryTransportMiddleware(FLASK_APP)
+app = FLASK_APP
