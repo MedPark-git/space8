@@ -1,6 +1,6 @@
 from functools import wraps
 
-from flask import jsonify, request
+from flask import jsonify, make_response, request
 from flask_login import current_user
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 import app as core
 
 app = core.app
+DISPATCH_HEADER = "task-category-dispatch-v3"
 
 
 def _is_admin():
@@ -27,6 +28,42 @@ def _json_error(message, status=400, code=None):
     return jsonify(payload), status
 
 
+def _json_payload():
+    payload = request.get_json(silent=True)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _request_value(name, type_=None):
+    payload = _json_payload()
+    value = payload.get(name)
+    if value is None:
+        value = request.form.get(name)
+    if value is None:
+        value = request.args.get(name)
+    if type_ is None:
+        return value
+    try:
+        return type_(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _resolve_action():
+    candidates = (
+        request.headers.get("X-Task-Category-Action"),
+        request.args.get("category_action"),
+        _json_payload().get("category_action"),
+        request.form.get("category_action"),
+    )
+    return next((str(value).strip() for value in candidates if str(value or "").strip()), "")
+
+
+def _marked_response(response):
+    wrapped = make_response(response)
+    wrapped.headers["X-Task-Category-Dispatch"] = DISPATCH_HEADER
+    return wrapped
+
+
 def _allowed_department(department_id):
     department_id = int(department_id or 0)
     if not department_id:
@@ -42,7 +79,6 @@ def _allowed_department(department_id):
             403,
             "CATEGORY_FORBIDDEN",
         )
-
     return department, None
 
 
@@ -65,14 +101,14 @@ def _category_payload(category):
 
 
 def _handle_add():
-    department, error = _allowed_department(request.form.get("department_id", type=int))
+    department, error = _allowed_department(_request_value("department_id", int))
     if error:
         return error
 
-    middle_name = str(request.form.get("middle_name") or "").strip()
-    small_name = str(request.form.get("small_name") or "").strip()
+    middle_name = str(_request_value("middle_name") or "").strip()
+    small_name = str(_request_value("small_name") or "").strip()
     if not middle_name:
-        return _json_error("중분류명을 입력해 주세요.", 400, "MIDDLE_REQUIRED")
+        return _json_error("중분류명을 확인해 주세요.", 400, "MIDDLE_REQUIRED")
     if len(middle_name) > 100:
         return _json_error("중분류명은 100자 이하로 입력해 주세요.", 400, "MIDDLE_TOO_LONG")
     if len(small_name) > 150:
@@ -85,13 +121,11 @@ def _handle_add():
             core.WorkCategory.small_name == small_name,
         )
     )
-
     created = False
     if category:
-        if not category.active:
-            category.active = True
-        else:
+        if category.active:
             return _json_error("이미 등록된 업무구분입니다.", 409, "CATEGORY_EXISTS")
+        category.active = True
     else:
         category = core.WorkCategory(
             department_id=department.id,
@@ -112,7 +146,7 @@ def _handle_add():
                 "department_name": department.name,
                 "middle_name": middle_name,
                 "small_name": small_name,
-                "source": "task_registration_page",
+                "source": "task_registration_selector_manager",
             },
         )
         core.db.session.commit()
@@ -138,24 +172,18 @@ def _handle_add():
 
 
 def _handle_rename_middle():
-    department, error = _allowed_department(request.form.get("department_id", type=int))
+    department, error = _allowed_department(_request_value("department_id", int))
     if error:
         return error
 
-    old_name = str(request.form.get("old_middle_name") or "").strip()
-    new_name = str(request.form.get("new_middle_name") or "").strip()
+    old_name = str(_request_value("old_middle_name") or "").strip()
+    new_name = str(_request_value("new_middle_name") or "").strip()
     if not old_name or not new_name:
-        return _json_error(
-            "기존 중분류명과 새 중분류명을 확인해 주세요.",
-            400,
-            "MIDDLE_REQUIRED",
-        )
+        return _json_error("수정할 중분류와 새 중분류명을 확인해 주세요.", 400, "MIDDLE_REQUIRED")
     if len(new_name) > 100:
         return _json_error("중분류명은 100자 이하로 입력해 주세요.", 400, "MIDDLE_TOO_LONG")
     if old_name == new_name:
-        return jsonify(
-            {"ok": True, "message": "변경된 내용이 없습니다.", "categories": _visible_categories()}
-        )
+        return jsonify({"ok": True, "message": "변경된 내용이 없습니다.", "categories": _visible_categories()})
 
     rows = core.db.session.scalars(
         select(core.WorkCategory).where(
@@ -180,11 +208,7 @@ def _handle_rename_middle():
         .limit(1)
     )
     if conflict:
-        return _json_error(
-            "변경하려는 중분류명에 동일한 소분류가 이미 존재합니다.",
-            409,
-            "MIDDLE_CONFLICT",
-        )
+        return _json_error("변경하려는 중분류명에 동일한 소분류가 이미 존재합니다.", 409, "MIDDLE_CONFLICT")
 
     try:
         for row in rows:
@@ -198,17 +222,13 @@ def _handle_rename_middle():
                 "previous_middle_name": old_name,
                 "new_middle_name": new_name,
                 "category_ids": sorted(row_ids),
-                "source": "task_registration_page",
+                "source": "task_registration_selector_manager",
             },
         )
         core.db.session.commit()
     except IntegrityError:
         core.db.session.rollback()
-        return _json_error(
-            "중복된 업무구분이 있어 중분류명을 수정할 수 없습니다.",
-            409,
-            "MIDDLE_CONFLICT",
-        )
+        return _json_error("중복된 업무구분이 있어 중분류명을 수정할 수 없습니다.", 409, "MIDDLE_CONFLICT")
     except Exception as exc:
         core.db.session.rollback()
         return _json_error(
@@ -217,20 +237,14 @@ def _handle_rename_middle():
             "MIDDLE_RENAME_ERROR",
         )
 
-    return jsonify(
-        {"ok": True, "message": "중분류명을 수정했습니다.", "categories": _visible_categories()}
-    )
+    return jsonify({"ok": True, "message": "중분류명을 수정했습니다.", "categories": _visible_categories()})
 
 
 def _handle_rename_small():
-    category_id = request.form.get("work_category_id", type=int)
-    new_name = str(request.form.get("new_small_name") or "").strip()
+    category_id = _request_value("work_category_id", int)
+    new_name = str(_request_value("new_small_name") or "").strip()
     if not category_id or not new_name:
-        return _json_error(
-            "수정할 소분류와 새 소분류명을 확인해 주세요.",
-            400,
-            "SMALL_REQUIRED",
-        )
+        return _json_error("수정할 소분류와 새 소분류명을 확인해 주세요.", 400, "SMALL_REQUIRED")
     if len(new_name) > 150:
         return _json_error("소분류명은 150자 이하로 입력해 주세요.", 400, "SMALL_TOO_LONG")
 
@@ -242,15 +256,9 @@ def _handle_rename_small():
     if error:
         return error
     if not category.small_name:
-        return _json_error(
-            "소분류 미지정 항목은 소분류명 수정 대상이 아닙니다.",
-            400,
-            "SMALL_PLACEHOLDER",
-        )
+        return _json_error("소분류 미지정 항목은 소분류명 수정 대상이 아닙니다.", 400, "SMALL_PLACEHOLDER")
     if category.small_name == new_name:
-        return jsonify(
-            {"ok": True, "message": "변경된 내용이 없습니다.", "categories": _visible_categories()}
-        )
+        return jsonify({"ok": True, "message": "변경된 내용이 없습니다.", "categories": _visible_categories()})
 
     conflict = core.db.session.scalar(
         select(core.WorkCategory.id).where(
@@ -261,11 +269,7 @@ def _handle_rename_small():
         )
     )
     if conflict:
-        return _json_error(
-            "같은 중분류 아래에 동일한 소분류가 이미 존재합니다.",
-            409,
-            "SMALL_CONFLICT",
-        )
+        return _json_error("같은 중분류 아래에 동일한 소분류가 이미 존재합니다.", 409, "SMALL_CONFLICT")
 
     previous = category.small_name
     try:
@@ -279,17 +283,13 @@ def _handle_rename_small():
                 "middle_name": category.middle_name,
                 "previous_small_name": previous,
                 "new_small_name": new_name,
-                "source": "task_registration_page",
+                "source": "task_registration_selector_manager",
             },
         )
         core.db.session.commit()
     except IntegrityError:
         core.db.session.rollback()
-        return _json_error(
-            "중복된 업무구분이 있어 소분류명을 수정할 수 없습니다.",
-            409,
-            "SMALL_CONFLICT",
-        )
+        return _json_error("중복된 업무구분이 있어 소분류명을 수정할 수 없습니다.", 409, "SMALL_CONFLICT")
     except Exception as exc:
         core.db.session.rollback()
         return _json_error(
@@ -298,9 +298,7 @@ def _handle_rename_small():
             "SMALL_RENAME_ERROR",
         )
 
-    return jsonify(
-        {"ok": True, "message": "소분류명을 수정했습니다.", "categories": _visible_categories()}
-    )
+    return jsonify({"ok": True, "message": "소분류명을 수정했습니다.", "categories": _visible_categories()})
 
 
 _CATEGORY_ACTION_HANDLERS = {
@@ -311,6 +309,26 @@ _CATEGORY_ACTION_HANDLERS = {
 }
 
 
+def _dispatch_category_action():
+    if request.path.rstrip("/") != "/tasks/new" or request.method != "POST":
+        return None
+    action = _resolve_action()
+    if not action:
+        return None
+    if not current_user.is_authenticated:
+        return _marked_response(_json_error("로그인이 필요합니다.", 401, "LOGIN_REQUIRED"))
+
+    core.csrf.protect()
+
+    handler = _CATEGORY_ACTION_HANDLERS.get(action)
+    if handler is None:
+        return _marked_response(_json_error("지원하지 않는 업무구분 작업입니다.", 400, "UNKNOWN_CATEGORY_ACTION"))
+    return _marked_response(handler())
+
+
+app.before_request_funcs.setdefault(None, []).insert(0, _dispatch_category_action)
+
+
 _original_task_new = app.view_functions.get("task_new")
 if _original_task_new is None:
     raise RuntimeError("task_new view function을 찾을 수 없습니다.")
@@ -318,20 +336,9 @@ if _original_task_new is None:
 
 @wraps(_original_task_new)
 def _task_new_with_category_management(*args, **kwargs):
-    if request.method == "POST":
-        action = str(request.form.get("category_action") or "").strip()
-        if action:
-            if not current_user.is_authenticated:
-                return _json_error("로그인이 필요합니다.", 401, "LOGIN_REQUIRED")
-            handler = _CATEGORY_ACTION_HANDLERS.get(action)
-            if handler is None:
-                return _json_error(
-                    "지원하지 않는 업무구분 작업입니다.",
-                    400,
-                    "UNKNOWN_CATEGORY_ACTION",
-                )
-            return handler()
-
+    dispatched = _dispatch_category_action()
+    if dispatched is not None:
+        return dispatched
     return _original_task_new(*args, **kwargs)
 
 
@@ -345,7 +352,8 @@ def task_editor_runtime_health():
             "ok": True,
             "runtime": "task_editor_runtime",
             "category_management_path": "/tasks/new",
-            "category_dispatch": "task_new_view_wrapper",
+            "category_dispatch": "before_request_plus_view_wrapper_v3",
+            "dispatch_header": DISPATCH_HEADER,
             "actions": sorted(_CATEGORY_ACTION_HANDLERS),
         }
     )
