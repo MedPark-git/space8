@@ -14,16 +14,85 @@
   };
 
   const currentUserName = () => document.querySelector(".user-profile-link strong")?.textContent?.trim() || "작성자";
+  const currentUserDepartment = () => {
+    const text = document.querySelector(".user-profile-link small")?.textContent?.trim() || "";
+    return text.split("·")[0]?.trim() || "-";
+  };
+
+  const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
+
+  const parseStatusAndProgress = (statusText) => {
+    const text = normalize(statusText);
+    const match = text.match(/(\d{1,3})\s*%/);
+    const progress = match ? `${match[1]}%` : "-";
+    const status = text
+      .replace(/\s*·?\s*\d{1,3}\s*%\s*$/, "")
+      .replace(/\s*·\s*$/, "")
+      .trim() || "-";
+    return { status, progress };
+  };
+
+  const stripContent = (rawSearchText, title, suffix) => {
+    let value = String(rawSearchText || "").trim();
+    const titleText = String(title || "").trim();
+    const suffixText = String(suffix || "").trim();
+    if (titleText && value.startsWith(titleText)) value = value.slice(titleText.length).trimStart();
+    if (suffixText && value.endsWith(suffixText)) value = value.slice(0, -suffixText.length).trimEnd();
+    return value.trim();
+  };
 
   const getSelectedTasks = (form) => [...form.querySelectorAll("input[name='task_ids']:checked")]
     .filter((checkbox) => !checkbox.disabled)
     .map((checkbox) => {
       const row = checkbox.closest("[data-meeting-task-row], [data-journal-task-row], label");
+      const title = row?.querySelector("strong")?.textContent?.trim() || `업무 #${checkbox.value}`;
+      const smallText = normalize(row?.querySelector("small")?.textContent || "");
+      const statusText = row?.querySelector(".status")?.textContent?.trim() || "";
+      const { status, progress } = parseStatusAndProgress(statusText);
+      const rawSearchText = row?.dataset?.searchText || "";
+      const parts = smallText.split("·").map((part) => part.trim()).filter((part) => part !== "");
+      const isMeetingTask = row?.hasAttribute("data-meeting-task-row");
+
+      let department = row?.dataset?.department || currentUserDepartment();
+      let assignee = "-";
+      let targetDate = "-";
+      let content = "";
+
+      if (isMeetingTask) {
+        department = parts[0] || department || "-";
+        const targetIndex = parts.findIndex((part) => part.startsWith("목표 "));
+        if (targetIndex >= 0) {
+          targetDate = parts[targetIndex].replace(/^목표\s*/, "").trim() || "-";
+          assignee = parts[targetIndex - 1] || "-";
+        }
+        const typeParts = targetIndex > 2 ? parts.slice(1, targetIndex - 1) : (targetIndex === 3 ? [parts[1]] : []);
+        const typeSearchText = typeParts
+          .join(", ")
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean)
+          .join(" ");
+        const suffix = [assignee !== "-" ? assignee : "", typeSearchText].filter(Boolean).join(" ");
+        content = stripContent(rawSearchText, title, suffix);
+      } else {
+        const targetIndex = parts.findIndex((part) => part.startsWith("목표 "));
+        if (targetIndex >= 0) {
+          targetDate = parts[targetIndex].replace(/^목표\s*/, "").trim() || "-";
+          assignee = parts[targetIndex + 1] || parts[parts.length - 1] || "-";
+        } else {
+          assignee = parts[parts.length - 1] || "-";
+        }
+        content = stripContent(rawSearchText, title, assignee !== "-" ? assignee : "");
+      }
+
       return {
-        title: row?.querySelector("strong")?.textContent?.trim() || `업무 #${checkbox.value}`,
-        meta: row?.querySelector("small")?.textContent?.trim() || "",
-        status: row?.querySelector(".status")?.textContent?.trim() || "",
-        department: row?.dataset?.department || "",
+        title,
+        content,
+        assignee,
+        targetDate,
+        progress,
+        status,
+        department: department || "-",
       };
     });
 
@@ -36,7 +105,7 @@
     const style = document.createElement("style");
     style.id = "live-document-preview-style";
     style.textContent = `
-      .live-document-preview-dialog{width:min(1120px,calc(100vw - 32px));max-width:1120px;max-height:92vh;border:0;border-radius:16px;padding:0;overflow:hidden}
+      .live-document-preview-dialog{width:min(1380px,calc(100vw - 32px));max-width:1380px;max-height:92vh;border:0;border-radius:16px;padding:0;overflow:hidden}
       .live-document-preview-dialog::backdrop{background:rgba(16,24,40,.48)}
       .live-preview-shell{display:flex;flex-direction:column;max-height:92vh;background:#f5f7fb}
       .live-preview-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:18px 22px;background:#fff;border-bottom:1px solid #e2e8f0}
@@ -48,7 +117,7 @@
       .live-preview-note{display:inline-block;margin-bottom:14px;padding:5px 9px;border-radius:999px;background:#eef4ff;color:#2457a7;font-size:12px;font-weight:800}
       .live-preview-meta{display:flex;flex-wrap:wrap;gap:8px 18px;padding:12px 0 16px;border-bottom:1px solid #e7ebf2;font-size:13px;color:#475569}
       .live-preview-meta b{color:#0f172a;margin-right:5px}.live-preview-section{margin-top:22px}.live-preview-section h3{font-size:16px;margin:0 0 10px}.live-preview-text{white-space:normal;line-height:1.65;background:#f8fafc;border-radius:9px;padding:12px;color:#334155;min-height:44px}
-      .live-preview-table-wrap{overflow:auto}.live-preview-table{width:100%;border-collapse:collapse;min-width:720px}.live-preview-table th,.live-preview-table td{padding:10px 9px;border:1px solid #e2e8f0;text-align:left;font-size:12px;vertical-align:top}.live-preview-table th{background:#f8fafc;color:#475569}.live-preview-empty{color:#94a3b8}
+      .live-preview-table-wrap{overflow:auto}.live-preview-table{width:100%;border-collapse:collapse;min-width:1180px}.live-preview-table th,.live-preview-table td{padding:10px 9px;border:1px solid #e2e8f0;text-align:left;font-size:12px;vertical-align:top}.live-preview-table th{background:#f8fafc;color:#475569;white-space:nowrap}.live-preview-task-content{white-space:pre-wrap;line-height:1.55;min-width:300px;max-width:560px;color:#334155}.live-preview-table td:nth-child(1){width:46px}.live-preview-table td:nth-child(2){width:110px}.live-preview-table td:nth-child(3){min-width:170px}.live-preview-table td:nth-child(5){width:120px}.live-preview-table td:nth-child(6){width:110px}.live-preview-table td:nth-child(7){width:80px}.live-preview-table td:nth-child(8){width:90px}.live-preview-empty{color:#94a3b8}
       .live-preview-footer{margin-top:24px;padding-top:12px;border-top:1px solid #e7ebf2;color:#94a3b8;font-size:11px;text-align:right}
       @media(max-width:700px){.live-document-preview-dialog{width:calc(100vw - 16px)}.live-preview-body{padding:10px}.live-preview-sheet{padding:16px}.live-preview-title{font-size:22px}}
     `;
@@ -78,9 +147,9 @@
     return dialog;
   };
 
-  const taskTable = (tasks, includeDepartment = false) => {
+  const taskTable = (tasks) => {
     if (!tasks.length) return '<div class="live-preview-text live-preview-empty">선택한 관련 업무가 없습니다.</div>';
-    return `<div class="live-preview-table-wrap"><table class="live-preview-table"><thead><tr><th>No.</th>${includeDepartment ? "<th>부서(팀)</th>" : ""}<th>업무명</th><th>업무 정보</th><th>상태</th></tr></thead><tbody>${tasks.map((task, index) => `<tr><td>${index + 1}</td>${includeDepartment ? `<td>${escapeHtml(task.department || "-")}</td>` : ""}<td><strong>${escapeHtml(task.title)}</strong></td><td>${escapeHtml(task.meta || "-")}</td><td>${escapeHtml(task.status || "-")}</td></tr>`).join("")}</tbody></table></div>`;
+    return `<div class="live-preview-table-wrap"><table class="live-preview-table"><thead><tr><th>No.</th><th>부서(팀)</th><th>업무명</th><th>업무 내용</th><th>담당자</th><th>목표일</th><th>진행률</th><th>상태</th></tr></thead><tbody>${tasks.map((task, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(task.department || "-")}</td><td><strong>${escapeHtml(task.title)}</strong></td><td><div class="live-preview-task-content">${task.content ? nl2br(task.content) : '<span class="live-preview-empty">등록된 업무 내용이 없습니다.</span>'}</div></td><td>${escapeHtml(task.assignee || "-")}</td><td>${escapeHtml(task.targetDate || "-")}</td><td>${escapeHtml(task.progress || "-")}</td><td>${escapeHtml(task.status || "-")}</td></tr>`).join("")}</tbody></table></div>`;
   };
 
   const textSection = (title, content) => `<section class="live-preview-section"><h3>${escapeHtml(title)}</h3><div class="live-preview-text">${content ? nl2br(content) : '<span class="live-preview-empty">작성된 내용이 없습니다.</span>'}</div></section>`;
@@ -109,7 +178,7 @@
         <h1 class="live-preview-title">${escapeHtml(title)}</h1>
         <div class="live-preview-meta"><span><b>문서구분</b>${escapeHtml(label)}</span><span><b>회의일자</b>${escapeHtml(meetingDate)}</span><span><b>회의시간</b>${escapeHtml(duration)}${duration === "-" ? "" : "분"}</span><span><b>작성자</b>${escapeHtml(author)}</span><span><b>보고자</b>${escapeHtml(reporter)}</span><span><b>참석자</b>${escapeHtml(attendees.join(", ") || "-")}</span></div>
         ${agendaContent ? textSection(isAgenda ? "아젠다 및 사전 공유사항" : "회의 아젠다 보충내용", agendaContent) : ""}
-        <section class="live-preview-section"><h3>관련 업무</h3>${taskTable(tasks, true)}</section>
+        <section class="live-preview-section"><h3>관련 업무</h3>${taskTable(tasks)}</section>
         ${textSection(isAgenda ? "상세 아젠다" : "주요 논의사항", discussionNotes)}
         ${textSection(isAgenda ? "예상 결론" : "결정사항", decisions)}
         ${textSection(isAgenda ? "추진사항" : "후속 조치사항", actionItems)}
