@@ -5,6 +5,16 @@
     return role === "관리자" || role === "시스템관리자" || role.includes("관리자");
   };
 
+  const readCatalog = () => {
+    const source = document.getElementById("work-category-catalog");
+    if (!source) return [];
+    try {
+      return JSON.parse(source.textContent || "[]");
+    } catch (_error) {
+      return [];
+    }
+  };
+
   const ensureStyles = () => {
     if (document.getElementById("task-category-basics-link-style")) return;
     const style = document.createElement("style");
@@ -16,12 +26,39 @@
     document.head.append(style);
   };
 
+  const applyMiddleOnlyCategory = (section) => {
+    const department = section.querySelector("[data-work-department]");
+    const middle = section.querySelector("[data-work-middle]");
+    const small = section.querySelector("[data-work-category]");
+    if (!department?.value || !middle?.value || !small) return;
+
+    const middleOnly = readCatalog().find((item) =>
+      String(item.department_id) === String(department.value)
+      && String(item.middle_name || "") === String(middle.value)
+      && !String(item.small_name || "").trim()
+    );
+    if (!middleOnly) return;
+
+    const option = [...small.options].find(
+      (item) => String(item.value) === String(middleOnly.id)
+    );
+    if (!option) return;
+
+    option.textContent = "소분류 미지정";
+    if (!small.value) {
+      small.value = String(middleOnly.id);
+    }
+  };
+
   const init = () => {
     if (window.location.pathname !== "/tasks/new") return;
     const section = document.querySelector(".work-category-form[data-work-category-form]");
     if (!section || section.dataset.categoryBasicsLinkBound) return;
     section.dataset.categoryBasicsLinkBound = "true";
     ensureStyles();
+
+    const department = section.querySelector("[data-work-department]");
+    const middle = section.querySelector("[data-work-middle]");
 
     const bar = document.createElement("div");
     bar.className = "task-category-basics-link";
@@ -40,8 +77,13 @@
       link.href = `/task-categories?return_to=${encodeURIComponent(returnTo)}`;
     }
     bar.append(link);
-
     section.prepend(bar);
+
+    // app.js가 중분류 변경 시 소분류 옵션을 먼저 재구성한 뒤,
+    // 중분류 전용 항목(small_name='')을 자동 선택해 업무 저장 시 중분류가 유실되지 않게 한다.
+    middle?.addEventListener("change", () => applyMiddleOnlyCategory(section));
+    department?.addEventListener("change", () => window.setTimeout(() => applyMiddleOnlyCategory(section), 0));
+    applyMiddleOnlyCategory(section);
   };
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
