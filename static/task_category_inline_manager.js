@@ -2,6 +2,7 @@
   const CATALOG_ID = "work-category-catalog";
   const currentDepartmentId = () => document.body.dataset.currentDepartmentId || "";
   const currentRole = () => document.body.dataset.currentRole || "";
+  const csrfToken = () => document.querySelector('meta[name="csrf-token"]')?.content || "";
   const isAdmin = () => {
     const role = currentRole();
     return role === "관리자" || role === "시스템관리자" || role.includes("관리자");
@@ -70,20 +71,41 @@
     style.id = "task-category-inline-manager-style";
     style.textContent = `
       .task-category-inline-actions{grid-column:1/-1;display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 0 10px;padding:10px 12px;border:1px solid #dbe4ef;border-radius:10px;background:#f8fafc}
-      .task-category-inline-actions strong{margin-right:4px}.task-category-inline-actions small{color:#64748b;margin-right:auto}
-      .task-category-inline-actions .button{white-space:nowrap}
-      .task-category-inline-dialog{width:min(520px,calc(100vw - 28px));border:0;border-radius:14px;padding:0;overflow:hidden}
-      .task-category-inline-dialog::backdrop{background:rgba(15,23,42,.45)}
-      .task-category-inline-card{background:#fff;padding:20px}
-      .task-category-inline-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:18px}
-      .task-category-inline-head h2{margin:4px 0 2px}.task-category-inline-head p{margin:0;color:#64748b;font-size:13px}
-      .task-category-inline-close{border:0;background:transparent;font-size:26px;color:#64748b;cursor:pointer}
-      .task-category-inline-form{display:grid;gap:14px}.task-category-inline-form label{display:grid;gap:6px;font-weight:700}.task-category-inline-form input{width:100%;padding:10px 11px;border:1px solid #cbd5e1;border-radius:8px;font:inherit}
-      .task-category-inline-context{padding:10px 12px;border-radius:8px;background:#f8fafc;color:#334155;font-size:13px}
-      .task-category-inline-status{min-height:20px;margin:0;font-size:13px}.task-category-inline-status.error{color:#b42318}.task-category-inline-status.success{color:#067647}
-      .task-category-inline-buttons{display:flex;justify-content:flex-end;gap:8px}
+      .task-category-inline-actions strong{margin-right:4px}.task-category-inline-actions small{color:#64748b;margin-right:auto}.task-category-inline-actions .button{white-space:nowrap}
+      .task-category-inline-dialog{width:min(520px,calc(100vw - 28px));border:0;border-radius:14px;padding:0;overflow:hidden}.task-category-inline-dialog::backdrop{background:rgba(15,23,42,.45)}
+      .task-category-inline-card{background:#fff;padding:20px}.task-category-inline-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:18px}.task-category-inline-head h2{margin:4px 0 2px}.task-category-inline-head p{margin:0;color:#64748b;font-size:13px}
+      .task-category-inline-close{border:0;background:transparent;font-size:26px;color:#64748b;cursor:pointer}.task-category-inline-form{display:grid;gap:14px}.task-category-inline-form label{display:grid;gap:6px;font-weight:700}.task-category-inline-form input{width:100%;padding:10px 11px;border:1px solid #cbd5e1;border-radius:8px;font:inherit}
+      .task-category-inline-context{padding:10px 12px;border-radius:8px;background:#f8fafc;color:#334155;font-size:13px}.task-category-inline-status{min-height:20px;margin:0;font-size:13px}.task-category-inline-status.error{color:#b42318}.task-category-inline-status.success{color:#067647}.task-category-inline-buttons{display:flex;justify-content:flex-end;gap:8px}
     `;
     document.head.append(style);
+  };
+
+  const readResponse = async (response) => {
+    if (response.redirected && /\/login(?:\?|$)/.test(new URL(response.url, window.location.origin).pathname + new URL(response.url, window.location.origin).search)) {
+      throw new Error("로그인 세션이 만료되었습니다. 업무등록 화면을 새로고침한 후 다시 로그인해 주세요.");
+    }
+
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.ok) {
+        const code = payload.code ? ` [${payload.code}]` : "";
+        throw new Error(`${payload.message || `분류 저장 요청이 실패했습니다. (HTTP ${response.status})`}${code}`);
+      }
+      return payload;
+    }
+
+    const raw = (await response.text().catch(() => "")).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    if (response.status === 400) {
+      throw new Error("요청 보안 검증에 실패했습니다. 업무등록 화면을 새로고침한 후 다시 시도해 주세요. [HTTP 400]");
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(`로그인 또는 권한 확인이 필요합니다. [HTTP ${response.status}]`);
+    }
+    if (!response.ok) {
+      throw new Error(`${raw ? raw.slice(0, 120) : "분류 저장 중 서버 오류가 발생했습니다."} [HTTP ${response.status}]`);
+    }
+    throw new Error("서버 응답 형식을 확인할 수 없습니다. 업무등록 화면을 새로고침한 후 다시 시도해 주세요.");
   };
 
   const createDialog = (section) => {
@@ -97,7 +119,7 @@
         </div>
         <form class="task-category-inline-form">
           <div class="task-category-inline-context" data-inline-category-context></div>
-          <label data-inline-category-input-label>분류명<input name="category_name" maxlength="150" required></label>
+          <label data-inline-category-input-label>분류명 <input name="category_name" maxlength="150" required></label>
           <p class="task-category-inline-status" role="status" aria-live="polite"></p>
           <div class="task-category-inline-buttons"><button type="button" class="button ghost" data-inline-category-cancel>취소</button><button type="submit" class="button primary" data-inline-category-save>저장</button></div>
         </form>
@@ -161,17 +183,17 @@
 
       if (level !== "department" && !deptId) {
         status.textContent = "대분류(부서(팀))를 먼저 선택해 주세요.";
-        status.classList.add("error");
+        status.className = "task-category-inline-status error";
         return;
       }
       if (!isAdmin() && level !== "department" && String(deptId) !== String(currentDepartmentId())) {
         status.textContent = "본인 소속 부서(팀)의 중분류·소분류만 추가할 수 있습니다.";
-        status.classList.add("error");
+        status.className = "task-category-inline-status error";
         return;
       }
       if (level === "small" && !middleName) {
         status.textContent = "중분류를 먼저 선택해 주세요.";
-        status.classList.add("error");
+        status.className = "task-category-inline-status error";
         return;
       }
 
@@ -179,8 +201,10 @@
       save.textContent = "저장 중...";
       status.textContent = "";
       status.className = "task-category-inline-status";
+
+      const token = csrfToken();
       const data = new FormData();
-      data.set("csrf_token", document.querySelector('meta[name="csrf-token"]')?.content || "");
+      data.set("csrf_token", token);
 
       let endpoint = "/tasks/work-categories/add";
       if (level === "department") {
@@ -197,10 +221,14 @@
           method: "POST",
           body: data,
           credentials: "same-origin",
-          headers: { "X-Requested-With": "XMLHttpRequest", "Accept": "application/json" },
+          redirect: "follow",
+          headers: {
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json",
+            "X-CSRFToken": token,
+          },
         });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok || !result.ok) throw new Error(result.message || "분류를 저장하지 못했습니다.");
+        const result = await readResponse(response);
 
         if (level === "department") {
           const item = result.department;
@@ -225,11 +253,11 @@
         }
 
         status.textContent = result.message || "분류를 저장했습니다.";
-        status.classList.add("success");
+        status.className = "task-category-inline-status success";
         window.setTimeout(close, 650);
       } catch (error) {
         status.textContent = error.message || "분류 저장 중 오류가 발생했습니다.";
-        status.classList.add("error");
+        status.className = "task-category-inline-status error";
       } finally {
         save.disabled = false;
         save.textContent = "저장";
@@ -279,7 +307,6 @@
     actions.append(addSmall);
 
     section.prepend(actions);
-
     department?.addEventListener("change", () => rebuildMiddle(section));
     middle?.addEventListener("change", () => rebuildSmall(section));
   };
