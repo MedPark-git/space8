@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <span class="eyebrow">WORK CATEGORY BASICS</span>
+    <h1>업무구분 기초자료</h1>
+    <p>{{ department.name }}의 중분류·소분류를 조회하고 등록·수정할 수 있습니다.</p>
+  </div>
+  <a class="button ghost" href="{{ return_to }}">업무등록으로 돌아가기</a>
+</div>
+
+<section class="content-grid admin-grid">
+  <article class="panel span-2">
+    <div class="panel-head">
+      <div>
+        <h2>{{ department.name }} 업무구분</h2>
+        <p>본인 소속 부서(팀)의 중분류·소분류만 표시됩니다. 삭제·미사용 전환은 관리자만 가능합니다.</p>
+      </div>
+      <strong>{{ work_categories|length }}건</strong>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>중분류</th><th>소분류</th><th>사용 업무</th><th>수정</th></tr></thead>
+        <tbody>
+        {% for middle_name, items in work_categories|groupby('middle_name') %}
+          {% set middle_index = loop.index %}
+          {% for item in items %}
+          <tr>
+            <td>
+              {% if loop.first %}
+              <strong>{{ middle_name }}</strong>
+              {% else %}
+              <span class="permission-muted">↳</span>
+              {% endif %}
+            </td>
+            <td>{{ item.small_name or '중분류만 등록' }}</td>
+            <td>{{ item.tasks|length }}건</td>
+            <td>
+              <div class="button-row">
+                {% if loop.first %}<button class="button ghost small" type="button" data-dialog="middle-edit-{{ middle_index }}">중분류 수정</button>{% endif %}
+                {% if item.small_name %}<button class="button ghost small" type="button" data-dialog="small-edit-{{ item.id }}">소분류 수정</button>{% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="4" class="empty">등록된 업무구분이 없습니다.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+  <aside class="panel">
+    <h2>업무구분 등록</h2>
+    <p class="permission-muted">대분류는 현재 소속 부서(팀)인 <strong>{{ department.name }}</strong>으로 고정됩니다.</p>
+    <form method="post" class="stack-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="create">
+      <input type="hidden" name="return_to" value="{{ return_to }}">
+      <label>중분류<input name="middle_name" required maxlength="100" placeholder="예: 정보화 기기"></label>
+      <label>소분류<input name="small_name" maxlength="150" placeholder="예: 네트워크"></label>
+      <small>중분류만 등록하려면 소분류는 비워두세요.</small>
+      <button class="button primary wide" type="submit">기초자료 등록</button>
+    </form>
+  </aside>
+</section>
+
+{% for middle_name, items in work_categories|groupby('middle_name') %}
+{% set middle_index = loop.index %}
+<dialog id="middle-edit-{{ middle_index }}">
+  <form method="post" class="dialog-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="rename_middle">
+    <input type="hidden" name="old_middle_name" value="{{ middle_name }}">
+    <input type="hidden" name="return_to" value="{{ return_to }}">
+    <div class="dialog-head"><div><span class="eyebrow">EDIT MIDDLE CATEGORY</span><h2>중분류 수정</h2></div><button type="button" data-close>×</button></div>
+    <p><strong>{{ department.name }}</strong>의 중분류명을 수정합니다. 이 중분류 아래의 소분류 경로에도 함께 반영됩니다.</p>
+    <label>중분류명<input name="new_middle_name" value="{{ middle_name }}" maxlength="100" required></label>
+    <div class="dialog-actions"><button class="button ghost" type="button" data-close>취소</button><button class="button primary" type="submit">수정 저장</button></div>
+  </form>
+</dialog>
+{% endfor %}
+
+{% for item in work_categories if item.small_name %}
+<dialog id="small-edit-{{ item.id }}">
+  <form method="post" class="dialog-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="rename_small">
+    <input type="hidden" name="work_category_id" value="{{ item.id }}">
+    <input type="hidden" name="return_to" value="{{ return_to }}">
+    <div class="dialog-head"><div><span class="eyebrow">EDIT SMALL CATEGORY</span><h2>소분류 수정</h2></div><button type="button" data-close>×</button></div>
+    <p><strong>{{ item.middle_name }}</strong> 아래 소분류명을 수정합니다.</p>
+    <label>소분류명<input name="new_small_name" value="{{ item.small_name }}" maxlength="150" required></label>
+    <div class="dialog-actions"><button class="button ghost" type="button" data-close>취소</button><button class="button primary" type="submit">수정 저장</button></div>
+  </form>
+</dialog>
+{% endfor %}
+{% endblock %}
