@@ -1,1 +1,1 @@
-web: gunicorn --workers 1 --threads 4 --timeout 120 --bind 0.0.0.0:$PORT diagnostic_runtime:app
+web: gunicorn --workers 1 --threads 4 --timeout 120 --bind 0.0.0.0:$PORT task_editor_runtime:app
