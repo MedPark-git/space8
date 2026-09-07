@@ -1,14 +1,12 @@
-from functools import wraps
-
 from flask import flash, redirect, request, url_for, jsonify
-from flask_login import current_user, login_required
+from flask_login import current_user
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 import app as core
 
 FLASK_APP = core.app
-TRANSPORT_VERSION = "task-category-form-v7"
+TRANSPORT_VERSION = "task-category-dispatch-v8"
 
 
 def _is_admin():
@@ -41,11 +39,9 @@ def _allowed_department(department_id):
         department_id = 0
     if not department_id:
         return None, _redirect_manager("대분류(부서·팀)를 확인해 주세요.", "error")
-
     department = core.db.session.get(core.Department, department_id)
     if not department or not department.active:
         return None, _redirect_manager("사용 가능한 부서(팀)를 찾을 수 없습니다.", "error")
-
     if not _is_admin() and current_user.department_id != department.id:
         return None, _redirect_manager(
             "본인 소속 부서(팀)의 중분류·소분류만 관리할 수 있습니다.",
@@ -58,7 +54,6 @@ def _handle_add():
     department, error = _allowed_department(request.form.get("department_id"))
     if error:
         return error
-
     middle_name = str(request.form.get("middle_name") or "").strip()
     small_name = str(request.form.get("small_name") or "").strip()
     if not middle_name:
@@ -75,7 +70,6 @@ def _handle_add():
             core.WorkCategory.small_name == small_name,
         )
     )
-
     if category and category.active:
         return _redirect_manager(
             "이미 등록된 업무구분입니다. 저장된 항목을 선택했습니다.",
@@ -133,7 +127,6 @@ def _handle_add():
             f"업무구분 등록 중 오류가 발생했습니다. ({type(exc).__name__})",
             "error",
         )
-
     return _redirect_manager("업무구분을 등록했습니다.", "success", middle_name, category.id)
 
 
@@ -141,7 +134,6 @@ def _handle_rename_middle():
     department, error = _allowed_department(request.form.get("department_id"))
     if error:
         return error
-
     old_name = str(request.form.get("old_middle_name") or "").strip()
     new_name = str(request.form.get("new_middle_name") or "").strip()
     if not old_name or not new_name:
@@ -160,7 +152,6 @@ def _handle_rename_middle():
     ).all()
     if not rows:
         return _redirect_manager("수정할 중분류를 찾을 수 없습니다.", "error")
-
     row_ids = {row.id for row in rows}
     small_names = {row.small_name for row in rows}
     conflict = core.db.session.scalar(
@@ -206,7 +197,6 @@ def _handle_rename_middle():
             "error",
             old_name,
         )
-
     return _redirect_manager("중분류명을 수정했습니다.", "success", new_name)
 
 
@@ -224,7 +214,6 @@ def _handle_rename_small():
     category = core.db.session.get(core.WorkCategory, category_id)
     if not category or not category.active:
         return _redirect_manager("수정할 소분류를 찾을 수 없습니다.", "error")
-
     department, error = _allowed_department(category.department_id)
     if error:
         return error
@@ -275,7 +264,6 @@ def _handle_rename_small():
             "error",
             category.middle_name,
         )
-
     return _redirect_manager("소분류명을 수정했습니다.", "success", category.middle_name, category.id)
 
 
@@ -286,34 +274,37 @@ CATEGORY_HANDLERS = {
 }
 
 
-_original_task_new = FLASK_APP.view_functions.get("task_new")
-if _original_task_new is None:
-    raise RuntimeError("task_new view function을 찾을 수 없습니다.")
+_original_dispatch_request = FLASK_APP.dispatch_request
 
 
-@wraps(_original_task_new)
-@login_required
-def _task_new_v7(*args, **kwargs):
-    if request.method == "POST" and request.form.get("_category_transport") == "v7":
+def _dispatch_request_v8():
+    if (
+        request.method == "POST"
+        and request.path.rstrip("/") == "/tasks/new"
+        and request.form.get("_category_transport") == "v8"
+    ):
+        if not current_user.is_authenticated:
+            return redirect(url_for("login"))
         action = str(request.form.get("category_action") or "").strip()
         handler = CATEGORY_HANDLERS.get(action)
         if handler is None:
             return _redirect_manager("지원하지 않는 업무구분 작업입니다.", "error")
         return handler()
-    return _original_task_new(*args, **kwargs)
+    return _original_dispatch_request()
 
 
-FLASK_APP.view_functions["task_new"] = _task_new_v7
+FLASK_APP.dispatch_request = _dispatch_request_v8
 
 
-@FLASK_APP.get("/__health/task-category-form-v7")
-def task_category_form_v7_health():
+@FLASK_APP.get("/__health/task-category-dispatch-v8")
+def task_category_dispatch_v8_health():
     return jsonify(
         {
             "ok": True,
             "transport": TRANSPORT_VERSION,
             "route": "/tasks/new",
-            "mode": "standard_html_form_post",
+            "dispatch_request": getattr(FLASK_APP.dispatch_request, "__name__", ""),
+            "task_new_view": getattr(FLASK_APP.view_functions.get("task_new"), "__name__", ""),
             "actions": sorted(CATEGORY_HANDLERS),
         }
     )
