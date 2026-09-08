@@ -12,7 +12,7 @@ import task_editor_runtime as runtime
 flask_app = runtime.FLASK_APP
 core = runtime.core
 TARGET_PATH = "/tasks/new"
-SOURCE = "task-category-wsgi-v11"
+SOURCE = "task-category-wsgi-v14"
 
 
 def _text_response(start_response, status, text):
@@ -23,7 +23,7 @@ def _text_response(start_response, status, text):
             ("Content-Type", "text/plain; charset=utf-8"),
             ("Content-Length", str(len(body))),
             ("Cache-Control", "no-store"),
-            ("X-MedPark-Task-Category-WSGI", "v11"),
+            ("X-MedPark-Task-Category-WSGI", "v14"),
         ],
     )
     return [body]
@@ -48,6 +48,17 @@ def _int_value(value):
 
 
 def _wants_json():
+    # Category-manager requests are AJAX-only in the current UI.  Do not rely on
+    # proxy-preserved Accept/X-Requested-With headers: some production proxy
+    # paths normalize or strip them, which previously caused a redirect/HTML
+    # response even though the category save itself was correctly dispatched.
+    if (
+        request.args.get("category_manager") == "1"
+        and request.args.get("category_transport") in {"v9", "v13", "v14"}
+    ):
+        return True
+    if request.headers.get("X-MedPark-Category-JSON") == "1":
+        return True
     return (
         "application/json" in (request.headers.get("Accept") or "").lower()
         and (request.headers.get("X-Requested-With") or "").lower() == "xmlhttprequest"
@@ -80,6 +91,7 @@ def _finish(message, ok=True, department_id=None, middle_name="", category_id=No
             "ok": bool(ok),
             "message": message,
             "categories": _catalog(department_id),
+            "transport": "wsgi-v14",
         }
         if category:
             payload["category"] = _category_payload(category)
@@ -374,11 +386,8 @@ class TaskCategoryWSGIGuard:
             return None
 
         query = parse_qs(environ.get("QUERY_STRING") or "", keep_blank_values=True)
-        if (
-            query.get("category_manager", [""])[-1] == "1"
-            and query.get("category_transport", [""])[-1] == "v9"
-        ):
-            return "v9"
+        if query.get("category_manager", [""])[-1] == "1":
+            return "category-manager"
 
         accept = (environ.get("HTTP_ACCEPT") or "").lower()
         requested_with = (environ.get("HTTP_X_REQUESTED_WITH") or "").lower()
@@ -388,8 +397,8 @@ class TaskCategoryWSGIGuard:
 
     def __call__(self, environ, start_response):
         path = environ.get("PATH_INFO") or ""
-        if path == "/__health/task-category-wsgi-v11":
-            return _text_response(start_response, "200 OK", "task_category_wsgi_guard=v11 active")
+        if path == "/__health/task-category-wsgi-v14":
+            return _text_response(start_response, "200 OK", "task_category_wsgi_guard=v14 active")
 
         mode = self._classify(environ)
         if mode is None:
@@ -425,8 +434,8 @@ class TaskCategoryWSGIGuard:
                         result = handler(payload)
 
             response = flask_app.make_response(result)
-            response.headers["X-MedPark-Task-Category-WSGI"] = "v11"
-            response.headers["X-Task-Category-Dispatch"] = "wsgi-v11"
+            response.headers["X-MedPark-Task-Category-WSGI"] = "v14"
+            response.headers["X-Task-Category-Dispatch"] = "wsgi-v14"
             response.headers["Cache-Control"] = "no-store"
             response = flask_app.process_response(response)
             return response(environ, start_response)
