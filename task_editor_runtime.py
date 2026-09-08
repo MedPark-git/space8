@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 import app as core
 
 FLASK_APP = core.app
-TRANSPORT_VERSION = "task-category-query-v9"
+TRANSPORT_VERSION = "task-category-runtime-v18"
 CATEGORY_MANAGER_PATH = "/tasks/new"
 CATEGORY_HANDLERS = {}
 
@@ -21,7 +21,82 @@ def _is_admin():
     )
 
 
+def _category_request_action():
+    if request.method != "POST" or request.path.rstrip("/") != CATEGORY_MANAGER_PATH:
+        return ""
+    return str(
+        request.form.get("category_action")
+        or request.args.get("category_action")
+        or request.headers.get("X-Task-Category-Action")
+        or ""
+    ).strip()
+
+
+def _is_category_request():
+    if request.method != "POST" or request.path.rstrip("/") != CATEGORY_MANAGER_PATH:
+        return False
+    return bool(
+        _category_request_action()
+        or request.args.get("category_manager") == "1"
+        or request.headers.get("X-MedPark-Category-JSON") == "1"
+    )
+
+
+def _response_department_id(category_id=""):
+    if category_id:
+        try:
+            category = core.db.session.get(core.WorkCategory, int(category_id))
+        except (TypeError, ValueError):
+            category = None
+        if category:
+            return category.department_id
+
+    if current_user.is_authenticated and not _is_admin():
+        return current_user.department_id
+
+    try:
+        return int(request.form.get("department_id") or 0) or None
+    except (TypeError, ValueError):
+        return None
+
+
+def _category_catalog(department_id):
+    if not department_id:
+        return []
+    return core.build_work_category_catalog(
+        core.active_work_categories([department_id])
+    )
+
+
 def _redirect_manager(message, category="success", middle_name="", category_id=""):
+    # V18: category-management requests must never fall through to the normal
+    # task registration form or return a redirect/HTML response. The frontend
+    # receives a deterministic JSON result regardless of proxy/header behavior.
+    if _is_category_request():
+        department_id = _response_department_id(category_id)
+        category_row = None
+        if category_id:
+            try:
+                category_row = core.db.session.get(core.WorkCategory, int(category_id))
+            except (TypeError, ValueError):
+                category_row = None
+        payload = {
+            "ok": category != "error",
+            "message": message,
+            "categories": _category_catalog(department_id),
+            "transport": TRANSPORT_VERSION,
+            "middle_name": middle_name or "",
+        }
+        if category_row:
+            payload["category"] = {
+                "id": category_row.id,
+                "department_id": category_row.department_id,
+                "department_name": category_row.department.name,
+                "middle_name": category_row.middle_name,
+                "small_name": category_row.small_name or "",
+            }
+        return jsonify(payload), (200 if category != "error" else 400)
+
     flash(message, category)
     return redirect(
         url_for(
@@ -324,12 +399,15 @@ CATEGORY_HANDLERS.update(
 )
 
 
-def _category_manager_v9_before_request():
+def _category_manager_v18_before_request():
     if request.method != "POST" or request.path.rstrip("/") != CATEGORY_MANAGER_PATH:
         return None
-    if request.args.get("category_manager") != "1":
-        return None
-    if request.args.get("category_transport") != "v9":
+
+    action = _category_request_action()
+    if not action and not (
+        request.args.get("category_manager") == "1"
+        or request.headers.get("X-MedPark-Category-JSON") == "1"
+    ):
         return None
 
     core.csrf.protect()
@@ -337,25 +415,31 @@ def _category_manager_v9_before_request():
     if not current_user.is_authenticated:
         return redirect(url_for("login"))
 
-    action = str(request.args.get("category_action") or "").strip()
     handler = CATEGORY_HANDLERS.get(action)
     if handler is None:
         return _redirect_manager("지원하지 않는 업무구분 작업입니다.", "error")
     return handler()
 
 
-FLASK_APP.before_request_funcs.setdefault(None, []).insert(0, _category_manager_v9_before_request)
+# Must be first: category management is not a task-registration submit.
+FLASK_APP.before_request_funcs.setdefault(None, []).insert(
+    0,
+    _category_manager_v18_before_request,
+)
 
 
-@FLASK_APP.get("/__health/task-category-query-v9")
-def task_category_query_v9_health():
-    before_names = [getattr(fn, "__name__", "") for fn in FLASK_APP.before_request_funcs.get(None, [])]
+@FLASK_APP.get("/__health/task-category-runtime-v18")
+def task_category_runtime_v18_health():
+    before_names = [
+        getattr(fn, "__name__", "")
+        for fn in FLASK_APP.before_request_funcs.get(None, [])
+    ]
     return jsonify(
         {
             "ok": True,
             "transport": TRANSPORT_VERSION,
             "route": CATEGORY_MANAGER_PATH,
-            "detection": "query_only_before_request",
+            "detection": "body-or-query-category-action-before-task-validation",
             "before_request_first": before_names[0] if before_names else "",
             "actions": sorted(CATEGORY_HANDLERS),
         }
