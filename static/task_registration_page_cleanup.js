@@ -1,5 +1,19 @@
 (() => {
+  const loadCategorySaveBridge = () => {
+    if (!window.location.pathname.startsWith("/tasks")) return;
+    if (window.__MEDPARK_CATEGORY_SAVE_BRIDGE__ === "v19") return;
+    if (document.querySelector('script[data-category-save-bridge="v19"]')) return;
+
+    const script = document.createElement("script");
+    script.src = "/static/task_category_save_bridge_v19.js?v=20260908-v19-direct-category-api";
+    script.async = false;
+    script.dataset.categorySaveBridge = "v19";
+    document.head.append(script);
+  };
+
   const init = () => {
+    loadCategorySaveBridge();
+
     if (window.location.pathname !== "/tasks/new") return;
 
     // Keep the Excel bulk-registration section and the single-task launch card visible,
