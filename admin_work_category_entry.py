@@ -1,18 +1,32 @@
-from flask import request
-
 import task_category_wsgi_guard as guard
-import admin_work_category_manager  # noqa: F401
-import admin_work_category_delete_manager  # noqa: F401
 
 flask_app = guard.flask_app
 
 
-class AdminWorkCategoryGateway:
-    """Serve admin work-category CRUD before Flask routing.
+@flask_app.after_request
+def strip_legacy_admin_work_category_script(response):
+    """Keep only the directly loaded V2 admin category UI.
 
-    This protects the admin category manager from runtime route-registration
-    drift and guarantees the two JSON endpoints used by the admin UI.
+    The legacy manager injects V1 dynamically. V2 is loaded from base.html, so
+    remove the legacy injected tag after it has been added to avoid duplicate
+    dialogs/events and stale REDACTED option markup.
     """
+    if response.status_code == 200 and response.mimetype.startswith("text/html"):
+        html = response.get_data(as_text=True)
+        legacy = '<script src="/static/admin_work_category_manager_v1.js?v=20260908-admin-work-category-v1" defer></script>'
+        if legacy in html:
+            html = html.replace(legacy, "")
+            response.set_data(html)
+            response.headers["Content-Length"] = str(len(response.get_data()))
+    return response
+
+
+import admin_work_category_manager  # noqa: E402,F401
+import admin_work_category_delete_manager  # noqa: E402,F401
+
+
+class AdminWorkCategoryGateway:
+    """Serve admin work-category CRUD before Flask routing."""
 
     def __init__(self, downstream):
         self.downstream = downstream
