@@ -1,8 +1,5 @@
 (() => {
-  const meta = document.querySelector('meta[name="admin-work-category-api"]');
-  const apiUrl = meta?.content || '';
-  if (!apiUrl) return;
-
+  const API_URL = '/awc-api-v24';
   const nativeFetch = window.fetch.bind(window);
 
   window.fetch = function medparkAdminWorkCategoryApiV24Fetch(input, init = {}) {
@@ -35,7 +32,7 @@
     headers.set('Accept', 'application/json');
     headers.set('X-Requested-With', 'XMLHttpRequest');
 
-    return nativeFetch(apiUrl, {
+    return nativeFetch(API_URL, {
       ...init,
       method: 'POST',
       body,
