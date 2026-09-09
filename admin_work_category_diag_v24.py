@@ -7,7 +7,7 @@ import app as core
 def admin_work_category_post_diagnostic_v24():
     rules = []
     for rule in core.app.url_map.iter_rules():
-        if rule.rule.startswith('/admin'):
+        if rule.rule.startswith('/admin') or rule.rule == '/awc-api-v24':
             rules.append({
                 'rule': rule.rule,
                 'endpoint': rule.endpoint,
@@ -15,7 +15,7 @@ def admin_work_category_post_diagnostic_v24():
             })
 
     with core.app.test_client() as client:
-        response = client.post(
+        admin_response = client.post(
             '/admin?section=work-categories',
             data={
                 'operation': 'rename_small',
@@ -31,13 +31,35 @@ def admin_work_category_post_diagnostic_v24():
             },
             follow_redirects=False,
         )
-        preview = response.get_data(as_text=True)[:240]
-        result = {
-            'ok': True,
-            'post_status': response.status_code,
-            'post_content_type': response.content_type,
-            'post_location': response.headers.get('Location', ''),
-            'post_preview': preview,
-            'admin_rules': rules,
-        }
-    return jsonify(result)
+        api_response = client.post(
+            '/awc-api-v24',
+            data={
+                'operation': 'rename_small',
+                'awc_source': 'v25-diagnostic',
+                'awc_response': 'json',
+                'work_category_id': '999999999',
+                'new_small_name': 'diagnostic-only',
+            },
+            headers={
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            follow_redirects=False,
+        )
+
+    return jsonify({
+        'ok': True,
+        'admin_post': {
+            'status': admin_response.status_code,
+            'content_type': admin_response.content_type,
+            'location': admin_response.headers.get('Location', ''),
+            'preview': admin_response.get_data(as_text=True)[:180],
+        },
+        'api_post': {
+            'status': api_response.status_code,
+            'content_type': api_response.content_type,
+            'location': api_response.headers.get('Location', ''),
+            'preview': api_response.get_data(as_text=True)[:180],
+        },
+        'rules': rules,
+    })
