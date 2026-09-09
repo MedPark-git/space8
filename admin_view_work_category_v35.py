@@ -1,3 +1,7 @@
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+
 from flask import request
 from flask_login import current_user
 
@@ -9,8 +13,6 @@ _original_admin = core.app.view_functions.get("admin")
 if _original_admin is None:
     raise RuntimeError("admin endpoint not found")
 
-# Remove the older work-category before_request hook. V35 handles administrator
-# work-category writes inside the actual /admin endpoint instead.
 hooks = core.app.before_request_funcs.setdefault(None, [])
 hooks[:] = [
     fn
@@ -95,11 +97,6 @@ def _admin_v35(*args, **kwargs):
     return response
 
 
-# Exempt the endpoint from Flask-WTF's automatic before_request CSRF handler,
-# then enforce CSRF explicitly above for every POST before delegating to the
-# original admin view. This preserves CSRF protection for all admin writes while
-# preventing the legacy global handler from converting work-category failures
-# into a generic 404 page.
 _admin_v35 = core.csrf.exempt(_admin_v35)
 core.app.view_functions["admin"] = _admin_v35
 
@@ -108,7 +105,50 @@ core.app.view_functions["admin"] = _admin_v35
 def admin_work_category_view_v35_health():
     active = core.app.view_functions.get("admin") is _admin_v35
     return (
-        f"admin_work_category_view=v35 active={int(active)} ",
+        f"admin_work_category_view=v35 active={int(active)}",
+        200,
+        {"Cache-Control": "no-store"},
+    )
+
+
+@core.app.get("/__health/admin-work-category-view-v35-post")
+def admin_work_category_view_v35_post_health():
+    payload = urlencode({
+        "operation": "rename_small",
+        "awc_operation": "rename_small",
+        "work_category_id": "999999999",
+        "new_small_name": "diagnostic-only",
+    }).encode("utf-8")
+    req = Request(
+        "https://medprk-management-task.mycafe24.ai/admin?section=work-categories",
+        data=payload,
+        method="POST",
+        headers={
+            "Accept": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-MedPark-Admin-Operation": "rename_small",
+            "User-Agent": "MedPark-V35-SelfTest/1.0",
+        },
+    )
+    try:
+        with urlopen(req, timeout=10) as response:
+            status = response.status
+            content_type = response.headers.get("Content-Type", "")
+            marker = response.headers.get("X-MedPark-Admin-Work-Category", "")
+            preview = response.read(140).decode("utf-8", errors="replace")
+    except HTTPError as exc:
+        status = exc.code
+        content_type = exc.headers.get("Content-Type", "") if exc.headers else ""
+        marker = exc.headers.get("X-MedPark-Admin-Work-Category", "") if exc.headers else ""
+        preview = exc.read(140).decode("utf-8", errors="replace")
+    except Exception as exc:
+        status = 0
+        content_type = type(exc).__name__
+        marker = ""
+        preview = str(exc)
+    return (
+        f"status={status} type={content_type} marker={marker} preview={preview[:100]}",
         200,
         {"Cache-Control": "no-store"},
     )
