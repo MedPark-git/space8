@@ -1,6 +1,7 @@
 (() => {
   const nativeFetch = window.fetch.bind(window);
   const TARGET = '/api/admin/work-category-v38';
+  const csrfToken = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
 
   const xhrRequest = (body, operation) => new Promise((resolve, reject) => {
     const encoded = new URLSearchParams();
@@ -8,6 +9,7 @@
       if (key === 'csrf_token') continue;
       encoded.set(key, String(value ?? ''));
     }
+    encoded.set('csrf_token', csrfToken());
     encoded.set('operation', operation);
     encoded.set('awc_operation', operation);
     encoded.set('awc_source', 'v38-xhr');
@@ -19,15 +21,14 @@
     xhr.setRequestHeader('Accept', 'application/json');
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
     xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-    xhr.setRequestHeader('X-MedPark-Admin-Category', 'v38');
-    xhr.setRequestHeader('X-MedPark-Admin-Operation', operation);
+    xhr.timeout = 15000;
 
     xhr.onload = () => {
-      const contentType = xhr.getResponseHeader('Content-Type') || 'application/json';
+      const contentType = xhr.getResponseHeader('Content-Type') || '';
       const response = new Response(xhr.responseText || '', {
         status: xhr.status || 500,
         statusText: xhr.statusText || '',
-        headers: { 'Content-Type': contentType },
+        headers: { 'Content-Type': contentType || 'application/json' },
       });
       try {
         Object.defineProperty(response, 'url', { value: new URL(TARGET, location.origin).href });
@@ -36,7 +37,6 @@
     };
     xhr.onerror = () => reject(new TypeError('업무구분 요청 중 네트워크 오류가 발생했습니다.'));
     xhr.ontimeout = () => reject(new TypeError('업무구분 요청 시간이 초과되었습니다.'));
-    xhr.timeout = 15000;
     xhr.send(encoded.toString());
   });
 
@@ -68,5 +68,5 @@
     return xhrRequest(body, operation);
   };
 
-  window.__MEDPARK_ADMIN_WORK_CATEGORY_TRANSPORT__ = 'v38-xhr';
+  window.__MEDPARK_ADMIN_WORK_CATEGORY_TRANSPORT__ = 'v38-xhr-manual-csrf';
 })();
