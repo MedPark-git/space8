@@ -5,9 +5,7 @@ import urllib.error
 import app as core
 
 
-@core.app.get('/__health/external-post-v26')
-def external_post_v26():
-    url = 'https://medprk-management-task.mycafe24.ai/awc-api-v24'
+def _post(url, headers=None):
     payload = urllib.parse.urlencode({
         'operation': 'rename_small',
         'work_category_id': '999999999',
@@ -18,28 +16,34 @@ def external_post_v26():
         data=payload,
         method='POST',
         headers={
-            'Accept': 'application/json',
+            'Accept': '*/*',
             'Content-Type': 'application/x-www-form-urlencoded',
             'User-Agent': 'MedPark-AISpace-Diagnostic/1.0',
+            **(headers or {}),
         },
     )
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
-            status = response.status
-            content_type = response.headers.get('Content-Type', '')
-            body = response.read(240).decode('utf-8', errors='replace')
+            return response.status, response.headers.get('Content-Type', ''), response.read(160).decode('utf-8', errors='replace')
     except urllib.error.HTTPError as exc:
-        status = exc.code
-        content_type = exc.headers.get('Content-Type', '') if exc.headers else ''
-        body = exc.read(240).decode('utf-8', errors='replace')
+        return exc.code, (exc.headers.get('Content-Type', '') if exc.headers else ''), exc.read(160).decode('utf-8', errors='replace')
     except Exception as exc:
-        status = 0
-        content_type = type(exc).__name__
-        body = str(exc)
+        return 0, type(exc).__name__, str(exc)
 
-    print(f'[external-post-v26] status={status} content_type={content_type} body={body[:160]}', flush=True)
-    return (
-        f'external_post_v26 status={status} content_type={content_type} body={body[:160]}',
-        200,
-        {'Cache-Control': 'no-store'},
+
+@core.app.get('/__health/external-post-v26')
+def external_post_v26():
+    base = 'https://medprk-management-task.mycafe24.ai'
+    api = _post(base + '/awc-api-v24', {'Accept': 'application/json'})
+    admin_plain = _post(base + '/admin?section=work-categories')
+    admin_xhr = _post(base + '/admin?section=work-categories', {
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+    })
+    text = (
+        f'api_status={api[0]} api_type={api[1]} '
+        f'admin_plain_status={admin_plain[0]} admin_plain_type={admin_plain[1]} '
+        f'admin_xhr_status={admin_xhr[0]} admin_xhr_type={admin_xhr[1]}'
     )
+    print('[external-post-v26] ' + text, flush=True)
+    return text, 200, {'Cache-Control': 'no-store'}
