@@ -5,11 +5,13 @@ from flask import request
 from flask_login import current_user
 from flask_wtf.csrf import validate_csrf
 from wtforms.validators import ValidationError
+from werkzeug.wsgi import get_input_stream
 
 import admin_work_category_server_v19 as v19
 
 core = v19.core
 MARKER = "v41"
+TARGET_PATH = "/tasks/new"
 
 
 class AdminWorkCategoryBodyV41:
@@ -20,13 +22,12 @@ class AdminWorkCategoryBodyV41:
     def _restore_body(environ, raw):
         environ["wsgi.input"] = BytesIO(raw)
         environ["CONTENT_LENGTH"] = str(len(raw))
-        environ.pop("werkzeug.request", None)
 
     @staticmethod
     def _candidate(environ):
         method = (environ.get("REQUEST_METHOD") or "GET").upper()
-        content_type = (environ.get("CONTENT_TYPE") or "").lower()
-        return method == "POST" and content_type.startswith("application/x-www-form-urlencoded")
+        path = (environ.get("PATH_INFO") or "").rstrip("/") or "/"
+        return method == "POST" and path == TARGET_PATH
 
     @staticmethod
     def _text(start_response, text, status="200 OK"):
@@ -43,23 +44,10 @@ class AdminWorkCategoryBodyV41:
 
     @staticmethod
     def _read_body(environ):
-        """Read the full request body, including chunked browser/proxy POSTs."""
-        stream = environ.get("wsgi.input")
-        if stream is None:
-            return b""
         try:
-            length = int(environ.get("CONTENT_LENGTH") or 0)
-        except (TypeError, ValueError):
-            length = 0
-
-        if length > 0:
-            return stream.read(length)
-
-        # Cafe24/Gunicorn may deliver browser POSTs chunked without
-        # CONTENT_LENGTH. Gunicorn provides a request-bounded stream, so a
-        # size-less read reaches EOF at the end of the current request.
-        try:
-            return stream.read()
+            stream = get_input_stream(environ, safe_fallback=True)
+            raw = stream.read()
+            return raw if isinstance(raw, (bytes, bytearray)) else bytes(raw or b"")
         except Exception:
             return None
 
@@ -68,7 +56,7 @@ class AdminWorkCategoryBodyV41:
         if path == "/__health/admin-work-category-v41":
             return self._text(
                 start_response,
-                "admin_work_category_body=v41 active=1 body_read=chunked-safe",
+                "admin_work_category_body=v41 active=1 candidate=all-post-tasks-new reader=werkzeug",
             )
 
         if not self._candidate(environ):
@@ -76,10 +64,10 @@ class AdminWorkCategoryBodyV41:
 
         raw = self._read_body(environ)
         if raw is None:
-            # Never replace an unreadable request body with an empty stream.
             return self.downstream(environ, start_response)
 
         self._restore_body(environ, raw)
+
         try:
             parsed = parse_qs(raw.decode("utf-8"), keep_blank_values=True)
         except Exception:
@@ -87,6 +75,7 @@ class AdminWorkCategoryBodyV41:
 
         marker = (parsed.get("awc_admin") or [""])[-1]
         operation = (parsed.get("operation") or parsed.get("awc_operation") or [""])[-1]
+
         if marker != MARKER or operation not in v19.HANDLERS:
             self._restore_body(environ, raw)
             return self.downstream(environ, start_response)
