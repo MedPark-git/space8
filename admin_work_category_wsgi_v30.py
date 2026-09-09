@@ -1,4 +1,6 @@
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlencode
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 from flask import request
 from flask_login import current_user
@@ -8,6 +10,7 @@ from wtforms.validators import ValidationError
 import admin_work_category_server_v19 as v19
 
 core = v19.core
+PUBLIC_BASE = "https://medprk-management-task.mycafe24.ai"
 
 
 class AdminWorkCategoryWSGIV30:
@@ -28,19 +31,70 @@ class AdminWorkCategoryWSGIV30:
             and query.get("awc_transport", [""])[-1] == "v30"
         )
 
+    @staticmethod
+    def _text(start_response, text, status="200 OK"):
+        body = text.encode("utf-8")
+        start_response(
+            status,
+            [
+                ("Content-Type", "text/plain; charset=utf-8"),
+                ("Content-Length", str(len(body))),
+                ("Cache-Control", "no-store"),
+            ],
+        )
+        return [body]
+
+    def _self_test(self, start_response):
+        url = PUBLIC_BASE + "/admin?section=work-categories&awc_transport=v30"
+        payload = urlencode(
+            {
+                "operation": "rename_small",
+                "work_category_id": "999999999",
+                "new_small_name": "diagnostic-only",
+                "awc_source": "v30-self-test",
+                "awc_response": "json",
+            }
+        ).encode("utf-8")
+        req = Request(
+            url,
+            data=payload,
+            method="POST",
+            headers={
+                "Accept": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "User-Agent": "MedPark-AISpace-WSGI-V30-SelfTest/1.0",
+            },
+        )
+        try:
+            with urlopen(req, timeout=10) as response:
+                status = response.status
+                content_type = response.headers.get("Content-Type", "")
+                marker = response.headers.get("X-MedPark-Admin-Work-Category", "")
+                preview = response.read(180).decode("utf-8", errors="replace")
+        except HTTPError as exc:
+            status = exc.code
+            content_type = exc.headers.get("Content-Type", "") if exc.headers else ""
+            marker = exc.headers.get("X-MedPark-Admin-Work-Category", "") if exc.headers else ""
+            preview = exc.read(180).decode("utf-8", errors="replace")
+        except Exception as exc:
+            status = 0
+            content_type = type(exc).__name__
+            marker = ""
+            preview = str(exc)
+
+        text = (
+            f"status={status} type={content_type} marker={marker} "
+            f"preview={preview[:120]}"
+        )
+        return self._text(start_response, text)
+
     def __call__(self, environ, start_response):
         path = environ.get("PATH_INFO") or ""
         if path == "/__health/admin-work-category-wsgi-v30":
-            body = b"admin_work_category_wsgi=v30 active=1"
-            start_response(
-                "200 OK",
-                [
-                    ("Content-Type", "text/plain; charset=utf-8"),
-                    ("Content-Length", str(len(body))),
-                    ("Cache-Control", "no-store"),
-                ],
-            )
-            return [body]
+            return self._text(start_response, "admin_work_category_wsgi=v30 active=1")
+        if path == "/__health/admin-work-category-wsgi-v30-post":
+            return self._self_test(start_response)
 
         if not self._is_target(environ):
             return self.downstream(environ, start_response)
