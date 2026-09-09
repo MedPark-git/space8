@@ -16,7 +16,7 @@ def _api_json(message, ok=True, status=200):
     }), status
 
 
-@core.app.route('/admin/work-category-api-v24', methods=['GET', 'POST'])
+@core.app.route('/awc-api-v24', methods=['GET', 'POST'])
 def admin_work_category_api_v24():
     if request.method == 'GET':
         return jsonify({
