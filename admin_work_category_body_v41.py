@@ -1,7 +1,5 @@
 from io import BytesIO
-from urllib.parse import parse_qs, urlencode
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError
+from urllib.parse import parse_qs
 
 from flask import request
 from flask_login import current_user
@@ -12,7 +10,6 @@ import admin_work_category_server_v19 as v19
 
 core = v19.core
 MARKER = "v41"
-PUBLIC = "https://medprk-management-task.mycafe24.ai"
 
 
 class AdminWorkCategoryBodyV41:
@@ -40,49 +37,10 @@ class AdminWorkCategoryBodyV41:
         ])
         return [body]
 
-    def _post_probe(self, start_response):
-        payload = urlencode({
-            "awc_admin":"v41",
-            "operation":"rename_small",
-            "awc_operation":"rename_small",
-            "work_category_id":"999999999",
-            "new_small_name":"diagnostic-only",
-        }).encode("utf-8")
-        req = Request(
-            PUBLIC + "/tasks/new",
-            data=payload,
-            method="POST",
-            headers={
-                "Accept":"application/json",
-                "Content-Type":"application/x-www-form-urlencoded; charset=UTF-8",
-                "User-Agent":"MedPark-V41-Probe/1.0",
-            },
-        )
-        try:
-            with urlopen(req, timeout=10) as response:
-                status = response.status
-                ctype = response.headers.get("Content-Type","")
-                marker = response.headers.get("X-MedPark-Admin-Work-Category","")
-        except HTTPError as exc:
-            status = exc.code
-            ctype = exc.headers.get("Content-Type","") if exc.headers else ""
-            marker = exc.headers.get("X-MedPark-Admin-Work-Category","") if exc.headers else ""
-        except Exception as exc:
-            return self._text(start_response, f"probe_error={type(exc).__name__}:{exc}", "500 Internal Server Error")
-
-        ok = status == 400 and "application/json" in ctype.lower() and marker == "body-v41"
-        return self._text(
-            start_response,
-            f"ok={int(ok)} status={status} type={ctype} marker={marker}",
-            "200 OK" if ok else "500 Internal Server Error",
-        )
-
     def __call__(self, environ, start_response):
         path = environ.get("PATH_INFO") or ""
         if path == "/__health/admin-work-category-v41":
             return self._text(start_response,"admin_work_category_body=v41 active=1")
-        if path == "/__health/admin-work-category-v41-post":
-            return self._post_probe(start_response)
 
         if not self._candidate(environ):
             return self.downstream(environ, start_response)
