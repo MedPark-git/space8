@@ -1,19 +1,12 @@
-from http.cookiejar import CookieJar
-from urllib.parse import urlencode
-from urllib.request import Request, build_opener, HTTPCookieProcessor
-from urllib.error import HTTPError
-
 from flask import jsonify, request
 from flask_login import current_user
-from flask_wtf.csrf import generate_csrf, validate_csrf
+from flask_wtf.csrf import validate_csrf
 from wtforms.validators import ValidationError
 
 import admin_work_category_server_v19 as v19
 
 core = v19.core
 ROUTE = "/api/admin/work-category-v38"
-PUBLIC_BASE = "https://medprk-management-task.mycafe24.ai"
-PUBLIC_URL = PUBLIC_BASE + ROUTE
 
 
 def _json(message, ok=True, status=200):
@@ -68,6 +61,7 @@ def admin_work_category_v38():
     return response
 
 
+# Manual CSRF validation is enforced above for this dedicated endpoint.
 core.csrf.exempt(admin_work_category_v38)
 
 
@@ -75,56 +69,6 @@ core.csrf.exempt(admin_work_category_v38)
 def admin_work_category_v38_health():
     return (
         "admin_work_category_route=v38 active=1 route=/api/admin/work-category-v38 csrf=manual",
-        200,
-        {"Cache-Control": "no-store"},
-    )
-
-
-@core.app.get("/__health/admin-work-category-v38-token")
-def admin_work_category_v38_token():
-    return generate_csrf(), 200, {"Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store"}
-
-
-@core.app.get("/__health/admin-work-category-v38-post")
-def admin_work_category_v38_post_health():
-    jar = CookieJar()
-    opener = build_opener(HTTPCookieProcessor(jar))
-    token = opener.open(PUBLIC_BASE + "/__health/admin-work-category-v38-token", timeout=10).read().decode("utf-8")
-    payload = urlencode({
-        "csrf_token": token,
-        "operation": "rename_small",
-        "work_category_id": "999999999",
-        "new_small_name": "diagnostic-only",
-    }).encode("utf-8")
-    req = Request(
-        PUBLIC_URL,
-        data=payload,
-        method="POST",
-        headers={
-            "Accept": "application/json",
-            "X-Requested-With": "XMLHttpRequest",
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "User-Agent": "MedPark-V38-Session-SelfTest/1.0",
-        },
-    )
-    try:
-        with opener.open(req, timeout=10) as response:
-            status = response.status
-            content_type = response.headers.get("Content-Type", "")
-            marker = response.headers.get("X-MedPark-Admin-Category", "")
-            preview = response.read(160).decode("utf-8", errors="replace")
-    except HTTPError as exc:
-        status = exc.code
-        content_type = exc.headers.get("Content-Type", "") if exc.headers else ""
-        marker = exc.headers.get("X-MedPark-Admin-Category", "") if exc.headers else ""
-        preview = exc.read(160).decode("utf-8", errors="replace")
-    except Exception as exc:
-        status = 0
-        content_type = type(exc).__name__
-        marker = ""
-        preview = str(exc)
-    return (
-        f"post_status={status} post_type={content_type} marker={marker} preview={preview[:120]}",
         200,
         {"Cache-Control": "no-store"},
     )
