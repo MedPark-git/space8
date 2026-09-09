@@ -1,17 +1,19 @@
+from http.cookiejar import CookieJar
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener, HTTPCookieProcessor
 from urllib.error import HTTPError
 
 from flask import jsonify, request
 from flask_login import current_user
-from flask_wtf.csrf import validate_csrf
+from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
 
 import admin_work_category_server_v19 as v19
 
 core = v19.core
 ROUTE = "/api/admin/work-category-v38"
-PUBLIC_URL = "https://medprk-management-task.mycafe24.ai" + ROUTE
+PUBLIC_BASE = "https://medprk-management-task.mycafe24.ai"
+PUBLIC_URL = PUBLIC_BASE + ROUTE
 
 
 def _json(message, ok=True, status=200):
@@ -78,9 +80,18 @@ def admin_work_category_v38_health():
     )
 
 
+@core.app.get("/__health/admin-work-category-v38-token")
+def admin_work_category_v38_token():
+    return generate_csrf(), 200, {"Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store"}
+
+
 @core.app.get("/__health/admin-work-category-v38-post")
 def admin_work_category_v38_post_health():
+    jar = CookieJar()
+    opener = build_opener(HTTPCookieProcessor(jar))
+    token = opener.open(PUBLIC_BASE + "/__health/admin-work-category-v38-token", timeout=10).read().decode("utf-8")
     payload = urlencode({
+        "csrf_token": token,
         "operation": "rename_small",
         "work_category_id": "999999999",
         "new_small_name": "diagnostic-only",
@@ -93,11 +104,11 @@ def admin_work_category_v38_post_health():
             "Accept": "application/json",
             "X-Requested-With": "XMLHttpRequest",
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "User-Agent": "MedPark-V38-SelfTest/1.0",
+            "User-Agent": "MedPark-V38-Session-SelfTest/1.0",
         },
     )
     try:
-        with urlopen(req, timeout=10) as response:
+        with opener.open(req, timeout=10) as response:
             status = response.status
             content_type = response.headers.get("Content-Type", "")
             marker = response.headers.get("X-MedPark-Admin-Category", "")
