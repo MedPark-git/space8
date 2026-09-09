@@ -1,4 +1,4 @@
 import task_category_wsgi_guard as guard
-import task_category_admin_v33  # noqa: F401 - extends proven task-category WSGI for administrator delete
+import admin_work_category_header_v34 as awc_v34
 
-app = guard.app
+app = awc_v34.wrap(guard.app)
