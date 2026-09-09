@@ -1,7 +1,3 @@
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError
-
 from flask import request
 from flask_login import current_user
 
@@ -51,9 +47,9 @@ def _is_work_category_write():
         return False
     if request.args.get("section") != "work-categories":
         return False
-    # Critical V36 change: query operation is checked before touching request.form.
-    # This guarantees that browser POSTs are classified as work-category writes
-    # even if the platform normalizes or delays form-body parsing.
+    # V36: classify from query before touching request.form. This prevents the
+    # request from falling through to the legacy admin POST validator when the
+    # platform/browser normalizes body parsing.
     query_op = _query_operation()
     if query_op in v19.HANDLERS:
         return True
@@ -121,47 +117,6 @@ def admin_work_category_view_v36_health():
     active = core.app.view_functions.get("admin") is _admin_v36
     return (
         f"admin_work_category_view=v36 active={int(active)} query_operation=1",
-        200,
-        {"Cache-Control": "no-store"},
-    )
-
-
-@core.app.get("/__health/admin-work-category-view-v36-post")
-def admin_work_category_view_v36_post_health():
-    payload = urlencode({
-        "operation": "rename_small",
-        "work_category_id": "999999999",
-        "new_small_name": "diagnostic-only",
-    }).encode("utf-8")
-    req = Request(
-        "https://medprk-management-task.mycafe24.ai/admin?section=work-categories&awc_operation=rename_small&awc_transport=v36",
-        data=payload,
-        method="POST",
-        headers={
-            "Accept": "application/json",
-            "X-Requested-With": "XMLHttpRequest",
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "User-Agent": "MedPark-V36-SelfTest/1.0",
-        },
-    )
-    try:
-        with urlopen(req, timeout=10) as response:
-            status = response.status
-            content_type = response.headers.get("Content-Type", "")
-            marker = response.headers.get("X-MedPark-Admin-Work-Category", "")
-            preview = response.read(140).decode("utf-8", errors="replace")
-    except HTTPError as exc:
-        status = exc.code
-        content_type = exc.headers.get("Content-Type", "") if exc.headers else ""
-        marker = exc.headers.get("X-MedPark-Admin-Work-Category", "") if exc.headers else ""
-        preview = exc.read(140).decode("utf-8", errors="replace")
-    except Exception as exc:
-        status = 0
-        content_type = type(exc).__name__
-        marker = ""
-        preview = str(exc)
-    return (
-        f"status={status} type={content_type} marker={marker} preview={preview[:100]}",
         200,
         {"Cache-Control": "no-store"},
     )
