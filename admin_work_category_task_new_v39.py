@@ -90,7 +90,6 @@ def admin_work_category_v39_health():
 
 @core.app.get("/__health/admin-work-category-v39-post")
 def admin_work_category_v39_post_health():
-    """No-op external POST using a real admin session and current CSRF token."""
     admin = core.db.session.scalar(
         select(core.Employee)
         .join(core.Role, core.Employee.role_id == core.Role.id)
@@ -99,14 +98,11 @@ def admin_work_category_v39_post_health():
     )
     category = core.db.session.scalar(
         select(core.WorkCategory)
-        .where(
-            core.WorkCategory.active.is_(True),
-            core.WorkCategory.small_name != "",
-        )
+        .where(core.WorkCategory.active.is_(True), core.WorkCategory.small_name != "")
         .limit(1)
     )
     if not admin or not category:
-        return "v39 self-test fixture missing", 590, {"Cache-Control": "no-store"}
+        return "fixture missing", 500, {"Cache-Control": "no-store"}
 
     session_name = core.app.config.get("SESSION_COOKIE_NAME", "session")
     with core.app.test_client() as client:
@@ -119,7 +115,7 @@ def admin_work_category_v39_post_health():
         cookie = client.get_cookie(session_name)
 
     if not match or cookie is None:
-        return "v39 self-test session/csrf unavailable", 591, {"Cache-Control": "no-store"}
+        return "session/csrf unavailable", 500, {"Cache-Control": "no-store"}
 
     token = match.group(1)
     cookie_value = getattr(cookie, "value", str(cookie))
@@ -157,7 +153,7 @@ def admin_work_category_v39_post_health():
         marker = exc.headers.get("X-MedPark-Admin-Work-Category", "") if exc.headers else ""
         preview = exc.read(240).decode("utf-8", errors="replace")
     except Exception as exc:
-        return f"v39 self-test exception={type(exc).__name__}:{exc}", 592, {"Cache-Control": "no-store"}
+        return f"exception={type(exc).__name__}:{exc}", 500, {"Cache-Control": "no-store"}
 
     ok = (
         status == 200
@@ -167,6 +163,6 @@ def admin_work_category_v39_post_health():
     )
     return (
         f"status={status} type={content_type} marker={marker} preview={preview[:120]}",
-        209 if ok else 593,
+        200 if ok else 500,
         {"Cache-Control": "no-store"},
     )
