@@ -20,23 +20,27 @@
     for (const [key, value] of body.entries()) {
       encoded.set(key, String(value ?? ''));
     }
-    encoded.set('awc_source', 'v26-urlencoded-admin');
+    encoded.set('awc_source', 'v29-urlencoded-admin');
     encoded.set('awc_response', 'json');
 
+    const csrfToken = encoded.get('csrf_token') || '';
     const headers = new Headers(init.headers || {});
     headers.set('Accept', 'application/json');
     headers.set('X-Requested-With', 'XMLHttpRequest');
-    headers.delete('Content-Type');
+    headers.set('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
+    if (csrfToken) {
+      headers.set('X-CSRFToken', csrfToken);
+    }
 
     return nativeFetch('/admin?section=work-categories', {
       ...init,
       method: 'POST',
-      body: encoded,
+      body: encoded.toString(),
       headers,
       credentials: 'same-origin',
       redirect: 'manual',
     });
   };
 
-  window.__MEDPARK_ADMIN_WORK_CATEGORY_TRANSPORT__ = 'v26-urlencoded-admin';
+  window.__MEDPARK_ADMIN_WORK_CATEGORY_TRANSPORT__ = 'v29-urlencoded-admin-explicit-content-type';
 })();
