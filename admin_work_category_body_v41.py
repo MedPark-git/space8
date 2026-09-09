@@ -1,5 +1,7 @@
 from io import BytesIO
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlencode
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 from flask import request
 from flask_login import current_user
@@ -10,18 +12,10 @@ import admin_work_category_server_v19 as v19
 
 core = v19.core
 MARKER = "v41"
+PUBLIC = "https://medprk-management-task.mycafe24.ai"
 
 
 class AdminWorkCategoryBodyV41:
-    """Intercept admin work-category writes by POST body marker, not URL/header.
-
-    Cafe24's proxy has shown inconsistent behavior for custom POST paths,
-    query-string dispatch and custom headers. The form body itself reliably
-    reaches the application, so V41 identifies only URL-encoded requests that
-    contain awc_admin=v41 and a supported operation. The original body is
-    restored before creating Flask's request context or delegating downstream.
-    """
-
     def __init__(self, downstream):
         self.downstream = downstream
 
@@ -36,19 +30,59 @@ class AdminWorkCategoryBodyV41:
         content_type = (environ.get("CONTENT_TYPE") or "").lower()
         return method == "POST" and content_type.startswith("application/x-www-form-urlencoded")
 
+    @staticmethod
+    def _text(start_response, text, status="200 OK"):
+        body = text.encode("utf-8")
+        start_response(status,[
+            ("Content-Type","text/plain; charset=utf-8"),
+            ("Content-Length",str(len(body))),
+            ("Cache-Control","no-store"),
+        ])
+        return [body]
+
+    def _post_probe(self, start_response):
+        payload = urlencode({
+            "awc_admin":"v41",
+            "operation":"rename_small",
+            "awc_operation":"rename_small",
+            "work_category_id":"999999999",
+            "new_small_name":"diagnostic-only",
+        }).encode("utf-8")
+        req = Request(
+            PUBLIC + "/tasks/new",
+            data=payload,
+            method="POST",
+            headers={
+                "Accept":"application/json",
+                "Content-Type":"application/x-www-form-urlencoded; charset=UTF-8",
+                "User-Agent":"MedPark-V41-Probe/1.0",
+            },
+        )
+        try:
+            with urlopen(req, timeout=10) as response:
+                status = response.status
+                ctype = response.headers.get("Content-Type","")
+                marker = response.headers.get("X-MedPark-Admin-Work-Category","")
+        except HTTPError as exc:
+            status = exc.code
+            ctype = exc.headers.get("Content-Type","") if exc.headers else ""
+            marker = exc.headers.get("X-MedPark-Admin-Work-Category","") if exc.headers else ""
+        except Exception as exc:
+            return self._text(start_response, f"probe_error={type(exc).__name__}:{exc}", "500 Internal Server Error")
+
+        ok = status == 400 and "application/json" in ctype.lower() and marker == "body-v41"
+        return self._text(
+            start_response,
+            f"ok={int(ok)} status={status} type={ctype} marker={marker}",
+            "200 OK" if ok else "500 Internal Server Error",
+        )
+
     def __call__(self, environ, start_response):
         path = environ.get("PATH_INFO") or ""
         if path == "/__health/admin-work-category-v41":
-            body = b"admin_work_category_body=v41 active=1"
-            start_response(
-                "200 OK",
-                [
-                    ("Content-Type", "text/plain; charset=utf-8"),
-                    ("Content-Length", str(len(body))),
-                    ("Cache-Control", "no-store"),
-                ],
-            )
-            return [body]
+            return self._text(start_response,"admin_work_category_body=v41 active=1")
+        if path == "/__health/admin-work-category-v41-post":
+            return self._post_probe(start_response)
 
         if not self._candidate(environ):
             return self.downstream(environ, start_response)
@@ -59,7 +93,6 @@ class AdminWorkCategoryBodyV41:
             length = 0
         raw = environ["wsgi.input"].read(length) if length > 0 else b""
         self._restore_body(environ, raw)
-
         try:
             parsed = parse_qs(raw.decode("utf-8"), keep_blank_values=True)
         except Exception:
@@ -70,36 +103,27 @@ class AdminWorkCategoryBodyV41:
         if marker != MARKER or operation not in v19.HANDLERS:
             return self.downstream(environ, start_response)
 
-        # Restore once more because Flask will parse request.form below.
         self._restore_body(environ, raw)
         with core.app.request_context(environ):
             try:
                 validate_csrf(request.form.get("csrf_token"))
             except ValidationError:
-                result = v19._json(
-                    "요청 보안 검증에 실패했습니다. 화면을 새로고침한 뒤 다시 시도해 주세요.",
-                    False,
-                    400,
-                )
+                result = v19._json("요청 보안 검증에 실패했습니다. 화면을 새로고침한 뒤 다시 시도해 주세요.",False,400)
             else:
                 if not current_user.is_authenticated:
-                    result = v19._json("로그인이 필요합니다.", False, 401)
+                    result = v19._json("로그인이 필요합니다.",False,401)
                 elif not v19._is_admin():
-                    result = v19._json("관리자 권한이 필요합니다.", False, 403)
+                    result = v19._json("관리자 권한이 필요합니다.",False,403)
                 else:
                     handler = v19.HANDLERS.get(operation)
                     if handler is None:
-                        result = v19._json("지원하지 않는 업무구분 작업입니다.", False, 400)
+                        result = v19._json("지원하지 않는 업무구분 작업입니다.",False,400)
                     else:
                         try:
                             result = handler()
                         except Exception as exc:
                             core.db.session.rollback()
-                            result = v19._json(
-                                f"업무구분 처리 중 오류가 발생했습니다. ({type(exc).__name__})",
-                                False,
-                                500,
-                            )
+                            result = v19._json(f"업무구분 처리 중 오류가 발생했습니다. ({type(exc).__name__})",False,500)
 
             response = core.app.make_response(result)
             response.headers["X-MedPark-Admin-Work-Category"] = "body-v41"
