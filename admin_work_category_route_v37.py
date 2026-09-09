@@ -1,7 +1,3 @@
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError
-
 from flask import jsonify, request
 from flask_login import current_user
 
@@ -9,7 +5,6 @@ import admin_work_category_server_v19 as v19
 
 core = v19.core
 MARKER = "v37"
-PUBLIC_ENDPOINT = "https://medprk-management-task.mycafe24.ai/__internal/admin-work-category-v37"
 
 
 def _json(message, ok=True, status=200):
@@ -61,49 +56,7 @@ def admin_work_category_v37():
     return response
 
 
+# This endpoint is intentionally exempt from Flask-WTF automatic CSRF.
+# It is protected by authenticated administrator session plus required custom
+# same-origin XHR headers, which cross-origin HTML forms cannot set.
 core.csrf.exempt(admin_work_category_v37)
-
-
-@core.app.get("/__health/admin-work-category-v37-post")
-def admin_work_category_v37_post_health():
-    payload = urlencode({
-        "operation": "rename_small",
-        "awc_operation": "rename_small",
-        "work_category_id": "999999999",
-        "new_small_name": "diagnostic-only",
-    }).encode("utf-8")
-    req = Request(
-        PUBLIC_ENDPOINT,
-        data=payload,
-        method="POST",
-        headers={
-            "Accept": "application/json",
-            "X-Requested-With": "XMLHttpRequest",
-            "X-MedPark-Admin-Category": MARKER,
-            "X-MedPark-Admin-Operation": "rename_small",
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "User-Agent": "MedPark-V37-SelfTest/1.0",
-        },
-    )
-    try:
-        with urlopen(req, timeout=10) as response:
-            status = response.status
-            content_type = response.headers.get("Content-Type", "")
-            marker = response.headers.get("X-MedPark-Admin-Category", "")
-            preview = response.read(160).decode("utf-8", errors="replace")
-    except HTTPError as exc:
-        status = exc.code
-        content_type = exc.headers.get("Content-Type", "") if exc.headers else ""
-        marker = exc.headers.get("X-MedPark-Admin-Category", "") if exc.headers else ""
-        preview = exc.read(160).decode("utf-8", errors="replace")
-    except Exception as exc:
-        status = 0
-        content_type = type(exc).__name__
-        marker = ""
-        preview = str(exc)
-
-    return (
-        f"status={status} type={content_type} marker={marker} preview={preview[:100]}",
-        200,
-        {"Cache-Control": "no-store"},
-    )
