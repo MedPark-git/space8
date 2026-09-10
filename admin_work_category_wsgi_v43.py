@@ -1,3 +1,7 @@
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+
 from flask import request
 from flask_login import current_user
 from flask_wtf.csrf import validate_csrf
@@ -9,6 +13,7 @@ import task_category_admin_v33  # noqa: F401 - ensure administrator delete handl
 core = guard.core
 TARGET_PATH = "/tasks/new"
 ACCEPTED_MARKERS = {"v42", "v43"}
+PUBLIC_BASE = "https://medprk-management-task.mycafe24.ai"
 
 
 class AdminWorkCategoryWSGIV43:
@@ -113,3 +118,52 @@ def admin_work_category_v43_health():
         "accepted_markers": sorted(ACCEPTED_MARKERS),
         "handlers": sorted(guard.HANDLERS),
     }
+
+
+@core.app.get("/__health/admin-work-category-v43-post")
+def admin_work_category_v43_post_health():
+    body = urlencode({
+        "operation": "rename_small",
+        "awc_operation": "rename_small",
+        "category_action": "rename_small",
+        "category_manager": "1",
+        "work_category_id": "999999999",
+        "new_small_name": "diagnostic-only",
+    }).encode("utf-8")
+    req = Request(
+        PUBLIC_BASE + "/tasks/new?category_manager=1&category_transport=v14&category_action=rename_small&awc_admin=v42",
+        data=body,
+        method="POST",
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+            "X-MedPark-Category-JSON": "1",
+            "X-Task-Category-Action": "rename_small",
+            "User-Agent": "MedPark-V43-Probe/1.0",
+        },
+    )
+    try:
+        with urlopen(req, timeout=10) as response:
+            status = response.status
+            content_type = response.headers.get("Content-Type", "")
+            marker = response.headers.get("X-MedPark-Admin-Work-Category", "")
+    except HTTPError as exc:
+        status = exc.code
+        content_type = exc.headers.get("Content-Type", "") if exc.headers else ""
+        marker = exc.headers.get("X-MedPark-Admin-Work-Category", "") if exc.headers else ""
+    except Exception:
+        status = 0
+        content_type = ""
+        marker = ""
+
+    ok = (
+        status == 400
+        and "application/json" in content_type.lower()
+        and marker == "wsgi-v43"
+    )
+    return (
+        f"ok={int(ok)} status={status} type={content_type} marker={marker}",
+        200 if ok else 500,
+        {"Cache-Control": "no-store"},
+    )
