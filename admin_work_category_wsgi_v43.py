@@ -7,17 +7,12 @@ import task_category_wsgi_guard as guard
 import task_category_admin_v33  # noqa: F401 - ensure administrator delete handler exists
 
 core = guard.core
-MARKER = "v43"
 TARGET_PATH = "/tasks/new"
+ACCEPTED_MARKERS = {"v42", "v43"}
 
 
 class AdminWorkCategoryWSGIV43:
-    """Intercept administrator work-category writes inside Flask.app.wsgi_app.
-
-    Identification uses only PATH_INFO + query parameters, before Flask route
-    dispatch. Request body parsing is left to Flask/Werkzeug inside a normal
-    request context, so this middleware never consumes or rewrites wsgi.input.
-    """
+    """Intercept administrator work-category writes inside Flask.app.wsgi_app."""
 
     def __init__(self, downstream):
         self.downstream = downstream
@@ -31,7 +26,8 @@ class AdminWorkCategoryWSGIV43:
             return False
         from urllib.parse import parse_qs
         query = parse_qs(environ.get("QUERY_STRING") or "", keep_blank_values=True)
-        return (query.get("awc_admin") or [""])[-1] == MARKER
+        marker = (query.get("awc_admin") or [""])[-1]
+        return marker in ACCEPTED_MARKERS
 
     def __call__(self, environ, start_response):
         if not self._is_target(environ):
@@ -114,5 +110,6 @@ def admin_work_category_v43_health():
         "ok": True,
         "transport": "admin-work-category-v43",
         "installed_on_flask_wsgi_app": isinstance(core.app.wsgi_app, AdminWorkCategoryWSGIV43),
+        "accepted_markers": sorted(ACCEPTED_MARKERS),
         "handlers": sorted(guard.HANDLERS),
     }
