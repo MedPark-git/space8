@@ -1,7 +1,7 @@
 import task_category_wsgi_guard as guard
 import task_category_admin_v33  # noqa: F401 - administrator delete handler
-import admin_work_category_wsgi_v43  # noqa: F401 - installs middleware inside Flask.app.wsgi_app
+import admin_work_category_view_v44  # noqa: F401 - patch the actual POST /tasks/new view
 
-# Export the actual Flask app. V43 is installed on app.wsgi_app itself so the
-# middleware is part of the Flask request chain regardless of Gunicorn loading.
+# Export the real Flask app. Administrator work-category writes are handled by
+# the actual task_new view; do not stack additional WSGI wrappers around it.
 app = guard.flask_app
