@@ -4,87 +4,99 @@ from flask import request
 from flask_login import current_user
 
 import task_category_wsgi_guard as guard
-import task_category_admin_v33  # noqa: F401 - ensure administrator delete exists
-import task_editor_runtime as runtime
+import task_category_admin_v33  # noqa: F401 - ensure administrator delete handler exists
 
 core = guard.core
-ACCEPTED_MARKERS = {"v42", "v43", "v44"}
-TARGET_PATH = "/tasks/new"
+ACCEPTED_MARKERS = {"v42", "v44"}
+ACTION_MAP = {
+    "add_middle": "add",
+    "add_small": "add",
+    "rename_middle": "rename_middle",
+    "rename_small": "rename_small",
+    "delete": "delete",
+}
 
 
 def _find_task_new_endpoint():
     candidates = []
     for rule in core.app.url_map.iter_rules():
-        normalized = rule.rule.rstrip("/") or "/"
-        if normalized == TARGET_PATH and "POST" in rule.methods:
+        if rule.rule.rstrip("/") == "/tasks/new" and "POST" in rule.methods:
             candidates.append(rule.endpoint)
     if not candidates:
         raise RuntimeError("POST /tasks/new endpoint not found")
-    return "task_new" if "task_new" in candidates else candidates[0]
+    # Prefer the conventional endpoint if present, otherwise use the actual first match.
+    if "task_new" in candidates:
+        return "task_new"
+    return candidates[0]
 
 
 TASK_NEW_ENDPOINT = _find_task_new_endpoint()
-_original_task_new = core.app.view_functions[TASK_NEW_ENDPOINT]
-_original_category_hook = runtime._category_manager_v18_before_request
+ORIGINAL_TASK_NEW = core.app.view_functions[TASK_NEW_ENDPOINT]
+
+# Remove only legacy category-manager before_request hooks. Flask-WTF's normal
+# CSRF hook remains active and runs before this view wrapper.
+hooks = core.app.before_request_funcs.setdefault(None, [])
+hooks[:] = [
+    fn for fn in hooks
+    if getattr(fn, "__name__", "") not in {
+        "_category_manager_v18_before_request",
+        "_admin_work_category_before_request_v19",
+        "_handle_v22",
+    }
+]
 
 
-def _is_admin_work_category_request():
+def _is_admin_write():
     if request.method != "POST":
-        return False
-    if (request.path.rstrip("/") or "/") != TARGET_PATH:
         return False
     marker = str(request.args.get("awc_admin") or request.form.get("awc_admin") or "").strip()
     if marker not in ACCEPTED_MARKERS:
         return False
-    action = str(
+    return bool(_action())
+
+
+def _action():
+    explicit = str(
         request.args.get("category_action")
         or request.form.get("category_action")
         or request.headers.get("X-Task-Category-Action")
         or ""
     ).strip()
-    return action in guard.HANDLERS
+    if explicit in guard.HANDLERS:
+        return explicit
+
+    operation = str(
+        request.form.get("operation")
+        or request.form.get("awc_operation")
+        or request.args.get("awc_operation")
+        or ""
+    ).strip()
+    return ACTION_MAP.get(operation, "")
 
 
-def _category_hook_v44():
-    if request.method == "POST":
-        marker = str(request.args.get("awc_admin") or "").strip()
-        if marker in ACCEPTED_MARKERS:
-            return None
-    return _original_category_hook()
+def _json_error(message, status):
+    response = core.app.make_response(guard._finish(message, False, status=status))
+    response.headers["X-MedPark-Admin-Work-Category"] = "view-v44"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
-_hooks = core.app.before_request_funcs.setdefault(None, [])
-_replaced = False
-for index, fn in enumerate(list(_hooks)):
-    if fn is _original_category_hook:
-        _hooks[index] = _category_hook_v44
-        _replaced = True
-        break
-if not _replaced:
-    _hooks.insert(0, _category_hook_v44)
-
-
-@wraps(_original_task_new)
-def _task_new_v44(*args, **kwargs):
-    if not _is_admin_work_category_request():
-        return _original_task_new(*args, **kwargs)
+@wraps(ORIGINAL_TASK_NEW)
+def task_new_v44(*args, **kwargs):
+    if not _is_admin_write():
+        return ORIGINAL_TASK_NEW(*args, **kwargs)
 
     if not current_user.is_authenticated:
-        return guard._finish("로그인이 필요합니다.", False, status=401)
+        return _json_error("로그인이 필요합니다.", 401)
     if not guard._is_admin():
-        return guard._finish("관리자 권한이 필요합니다.", False, status=403)
+        return _json_error("관리자 권한이 필요합니다.", 403)
 
-    action = str(
-        request.args.get("category_action")
-        or request.form.get("category_action")
-        or request.headers.get("X-Task-Category-Action")
-        or ""
-    ).strip()
+    action = _action()
     handler = guard.HANDLERS.get(action)
     if handler is None:
-        return guard._finish("지원하지 않는 업무구분 작업입니다.", False, status=400)
+        return _json_error("지원하지 않는 업무구분 작업입니다.", 400)
 
-    payload = request.form.to_dict(flat=True)
+    payload = guard._payload()
     try:
         result = handler(payload)
     except Exception as exc:
@@ -101,20 +113,18 @@ def _task_new_v44(*args, **kwargs):
     return response
 
 
-core.app.view_functions[TASK_NEW_ENDPOINT] = _task_new_v44
+core.app.view_functions[TASK_NEW_ENDPOINT] = task_new_v44
 
 
 @core.app.get("/__health/admin-work-category-v44")
 def admin_work_category_v44_health():
-    active = core.app.view_functions.get(TASK_NEW_ENDPOINT) is _task_new_v44
-    hook_names = [getattr(fn, "__name__", "") for fn in core.app.before_request_funcs.get(None, [])[:5]]
+    active = core.app.view_functions.get(TASK_NEW_ENDPOINT) is task_new_v44
     return {
         "ok": True,
         "transport": "admin-work-category-v44",
         "task_new_endpoint": TASK_NEW_ENDPOINT,
-        "active": active,
-        "category_hook_replaced": _replaced,
-        "first_hooks": hook_names,
+        "view_replaced": active,
         "accepted_markers": sorted(ACCEPTED_MARKERS),
         "handlers": sorted(guard.HANDLERS),
+        "legacy_category_hooks_removed": True,
     }
