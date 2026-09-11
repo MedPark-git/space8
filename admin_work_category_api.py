@@ -340,13 +340,39 @@ HANDLERS = {
 }
 
 
+def _resolve_operation():
+    """Accept the stable API contract and legacy task-page request shapes."""
+    explicit = str(
+        request.form.get("operation")
+        or request.form.get("awc_operation")
+        or ""
+    ).strip()
+    if explicit in HANDLERS:
+        return explicit
+
+    legacy_action = str(request.form.get("category_action") or "").strip()
+    if legacy_action in {"rename_middle", "rename_small", "delete"}:
+        return legacy_action
+    if legacy_action == "add":
+        return "add_small" if str(request.form.get("small_name") or "").strip() else "add_middle"
+
+    keys = set(request.form.keys())
+    if {"work_category_id", "new_small_name"}.issubset(keys):
+        return "rename_small"
+    if {"department_id", "old_middle_name", "new_middle_name"}.issubset(keys):
+        return "rename_middle"
+    if {"department_id", "middle_name"}.issubset(keys):
+        return "add_small" if str(request.form.get("small_name") or "").strip() else "add_middle"
+    return ""
+
+
 @app.post(API_PATH)
 @login_required
 def admin_work_category_manage_api():
     if not _is_admin():
         return _json("관리자 권한이 필요합니다.", False, 403)
 
-    operation = str(request.form.get("operation") or request.form.get("awc_operation") or "").strip()
+    operation = _resolve_operation()
     handler = HANDLERS.get(operation)
     if handler is None:
         return _json("지원하지 않는 업무구분 작업입니다.", False, 400)
@@ -365,4 +391,5 @@ def work_category_api_health():
         "path": API_PATH,
         "transport": "work-category-api",
         "operations": sorted(HANDLERS),
+        "compatibility": "operation-or-category_action",
     })
