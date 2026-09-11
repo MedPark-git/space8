@@ -1,9 +1,7 @@
 """SPACE8 startup customization.
 
-V49 intentionally registers administrator work-category routes directly on the
-core Flask application during interpreter startup. Cafe24 can launch the core
-app without honoring the Procfile WSGI wrapper, so route registration must not
-depend on the external entry module.
+Register the administrator work-category API directly on the core Flask app.
+The API uses one stable endpoint only: /admin/work-categories/manage.
 """
 
-import admin_work_category_routes_v49  # noqa: F401
+import admin_work_category_api  # noqa: F401
