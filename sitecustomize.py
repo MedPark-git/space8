@@ -1,13 +1,9 @@
 """SPACE8 startup customization.
 
-Legacy admin work-category auto-registration has been retired.
-
-Previous versions imported ``admin_work_category_manager`` and
-``admin_work_category_delete_manager`` automatically during interpreter startup.
-That caused old routes / after_request script injection to coexist with the
-current administrator work-category UI.  V17 intentionally performs no imports
-here; the active runtime is registered explicitly by the Procfile entry module.
+V49 intentionally registers administrator work-category routes directly on the
+core Flask application during interpreter startup. Cafe24 can launch the core
+app without honoring the Procfile WSGI wrapper, so route registration must not
+depend on the external entry module.
 """
 
-# Intentionally empty.  Keep this module harmless because the project is
-# installed editable and Python may import sitecustomize automatically.
+import admin_work_category_routes_v49  # noqa: F401
