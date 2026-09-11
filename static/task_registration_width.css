@@ -1,0 +1,14 @@
+/* 업무등록 화면 폭 정리: 엑셀 일괄 등록 / 단건 등록 / 구분선 동일 폭 */
+.excel-register-panel,
+.form-panel,
+.section-divider {
+  max-width: 900px;
+}
+
+@media (max-width: 940px) {
+  .excel-register-panel,
+  .form-panel,
+  .section-divider {
+    max-width: 100%;
+  }
+}
