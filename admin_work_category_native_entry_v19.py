@@ -12,8 +12,7 @@ import admin_work_category_v45  # noqa: F401 - stale-client /tasks/new category 
 import admin_work_category_wsgi_v48 as transport_v48
 
 # Production entrypoint. V48 wraps the actual Flask WSGI application, so the
-# dedicated administrator work-category endpoint is handled before Flask route
-# matching and cannot fall through to a 404 URL-map response.
+# administrator work-category endpoints are handled before Flask route matching.
 flask_app = guard.flask_app
 app = transport_v48.wrap(flask_app)
 
@@ -27,7 +26,7 @@ if _probe.status_code != 200 or _probe.headers.get("X-MedPark-Admin-Work-Categor
 
 
 def _run_authenticated_v48_noop_selftest():
-    """Exercise the exact exported WSGI endpoint without changing DB data."""
+    """Exercise both current and stale-browser endpoints without changing DB data."""
     core = admin_api.core
     admin = core.db.session.scalar(
         select(core.Employee)
@@ -66,38 +65,39 @@ def _run_authenticated_v48_noop_selftest():
         raise RuntimeError("v48 selftest: session cookie not found")
 
     wsgi_client = Client(app, Response, use_cookies=False)
-    response = wsgi_client.post(
-        transport_v48.TARGET_PATH,
-        data={
-            "csrf_token": match.group(1),
-            "operation": "rename_small",
-            "work_category_id": str(category.id),
-            "new_small_name": category.small_name,
-        },
-        headers={
-            "Cookie": f"{cookie_name}={cookie.value}",
-            "Accept": "application/json",
-            "X-Requested-With": "XMLHttpRequest",
-            "X-MedPark-Admin-Category-Transport": "v48-startup-selftest",
-        },
-    )
-    payload = response.get_json(silent=True) or {}
-    marker = response.headers.get("X-MedPark-Admin-Work-Category") or ""
-    content_type = (response.headers.get("Content-Type") or "").lower()
-    ok = (
-        response.status_code == 200
-        and "application/json" in content_type
-        and marker == "wsgi-v48"
-        and payload.get("ok") is True
-        and "변경된 내용이 없습니다." in str(payload.get("message") or "")
-    )
-    if not ok:
-        body = response.get_data(as_text=True)[:500]
-        raise RuntimeError(
-            "v48 authenticated selftest failed: "
-            f"status={response.status_code} type={content_type} marker={marker} "
-            f"payload={payload} body={body}"
+    for path in (transport_v48.TARGET_PATH, transport_v48.LEGACY_PATH):
+        response = wsgi_client.post(
+            path,
+            data={
+                "csrf_token": match.group(1),
+                "operation": "rename_small",
+                "work_category_id": str(category.id),
+                "new_small_name": category.small_name,
+            },
+            headers={
+                "Cookie": f"{cookie_name}={cookie.value}",
+                "Accept": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+                "X-MedPark-Admin-Category-Transport": "v48-startup-selftest",
+            },
         )
+        payload = response.get_json(silent=True) or {}
+        marker = response.headers.get("X-MedPark-Admin-Work-Category") or ""
+        content_type = (response.headers.get("Content-Type") or "").lower()
+        ok = (
+            response.status_code == 200
+            and "application/json" in content_type
+            and marker == "wsgi-v48"
+            and payload.get("ok") is True
+            and "변경된 내용이 없습니다." in str(payload.get("message") or "")
+        )
+        if not ok:
+            body = response.get_data(as_text=True)[:500]
+            raise RuntimeError(
+                "v48 authenticated selftest failed: "
+                f"path={path} status={response.status_code} type={content_type} marker={marker} "
+                f"payload={payload} body={body}"
+            )
     return True
 
 
