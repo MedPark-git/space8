@@ -5,10 +5,19 @@
   max-width: 900px;
 }
 
+/* task_editor_modal.js가 동적으로 생성하는 실제 단건 업무 등록 런처 */
+.task-registration-choice {
+  width: 100% !important;
+  max-width: 900px !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
 @media (max-width: 940px) {
   .excel-register-panel,
   .form-panel,
-  .section-divider {
-    max-width: 100%;
+  .section-divider,
+  .task-registration-choice {
+    max-width: 100% !important;
   }
 }
