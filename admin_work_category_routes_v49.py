@@ -5,6 +5,10 @@ Flask app even when Cafe24 launches app.py directly instead of the Procfile WSGI
 wrapper.
 """
 
+import re
+
+from sqlalchemy import select
+
 import admin_work_category_server_v19 as api
 
 core = api.core
@@ -63,4 +67,77 @@ if HEALTH_PATH not in _rules():
     )
 
 
+def _authenticated_noop_selftest():
+    """Verify the exact core Flask app routes used by the public service."""
+    rules = _rules()
+    missing = {MANAGE_PATH, V48_PATH, HEALTH_PATH} - rules
+    if missing:
+        raise RuntimeError(f"v49 route registration failed: missing={sorted(missing)}")
+
+    admin = core.db.session.scalar(
+        select(core.Employee)
+        .join(core.Role, core.Employee.role_id == core.Role.id)
+        .where(
+            core.Role.name == "관리자",
+            core.Employee.status == "재직",
+            core.Employee.approval_status == "승인완료",
+        )
+        .order_by(core.Employee.id)
+        .limit(1)
+    )
+    category = core.db.session.scalar(
+        select(core.WorkCategory)
+        .where(core.WorkCategory.active.is_(True), core.WorkCategory.small_name != "")
+        .order_by(core.WorkCategory.id)
+        .limit(1)
+    )
+    if not admin or not category:
+        raise RuntimeError("v49 selftest: active administrator or category not found")
+
+    client = core.app.test_client()
+    with client.session_transaction() as session:
+        session["_user_id"] = str(admin.id)
+        session["_fresh"] = True
+
+    page = client.get("/admin?section=work-categories")
+    html = page.get_data(as_text=True)
+    match = re.search(r'<meta\s+name="csrf-token"\s+content="([^"]+)"', html)
+    if not match:
+        raise RuntimeError("v49 selftest: csrf token not found")
+
+    for path in (MANAGE_PATH, V48_PATH):
+        response = client.post(
+            path,
+            data={
+                "csrf_token": match.group(1),
+                "operation": "rename_small",
+                "work_category_id": str(category.id),
+                "new_small_name": category.small_name,
+            },
+            headers={
+                "Accept": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+                "X-MedPark-Admin-Category-Transport": "v49-core-selftest",
+            },
+            follow_redirects=False,
+        )
+        payload = response.get_json(silent=True) or {}
+        content_type = (response.headers.get("Content-Type") or "").lower()
+        ok = (
+            response.status_code == 200
+            and "application/json" in content_type
+            and payload.get("ok") is True
+            and "변경된 내용이 없습니다." in str(payload.get("message") or "")
+        )
+        if not ok:
+            body = response.get_data(as_text=True)[:500]
+            raise RuntimeError(
+                "v49 core selftest failed: "
+                f"path={path} status={response.status_code} type={content_type} "
+                f"payload={payload} body={body}"
+            )
+    return True
+
+
+V49_SELFTEST_OK = _authenticated_noop_selftest()
 app = core.app
