@@ -1,7 +1,9 @@
 from functools import wraps
+import re
 
 from flask import request
 from flask_login import current_user
+from sqlalchemy import select
 
 import task_category_wsgi_guard as guard
 import task_category_admin_v33  # noqa: F401 - ensure administrator delete handler exists
@@ -24,7 +26,6 @@ def _find_task_new_endpoint():
             candidates.append(rule.endpoint)
     if not candidates:
         raise RuntimeError("POST /tasks/new endpoint not found")
-    # Prefer the conventional endpoint if present, otherwise use the actual first match.
     if "task_new" in candidates:
         return "task_new"
     return candidates[0]
@@ -33,8 +34,6 @@ def _find_task_new_endpoint():
 TASK_NEW_ENDPOINT = _find_task_new_endpoint()
 ORIGINAL_TASK_NEW = core.app.view_functions[TASK_NEW_ENDPOINT]
 
-# Remove only legacy category-manager before_request hooks. Flask-WTF's normal
-# CSRF hook remains active and runs before this view wrapper.
 hooks = core.app.before_request_funcs.setdefault(None, [])
 hooks[:] = [
     fn for fn in hooks
@@ -44,15 +43,6 @@ hooks[:] = [
         "_handle_v22",
     }
 ]
-
-
-def _is_admin_write():
-    if request.method != "POST":
-        return False
-    marker = str(request.args.get("awc_admin") or request.form.get("awc_admin") or "").strip()
-    if marker not in ACCEPTED_MARKERS:
-        return False
-    return bool(_action())
 
 
 def _action():
@@ -72,6 +62,15 @@ def _action():
         or ""
     ).strip()
     return ACTION_MAP.get(operation, "")
+
+
+def _is_admin_write():
+    if request.method != "POST":
+        return False
+    marker = str(request.args.get("awc_admin") or request.form.get("awc_admin") or "").strip()
+    if marker not in ACCEPTED_MARKERS:
+        return False
+    return bool(_action())
 
 
 def _json_error(message, status):
@@ -128,3 +127,67 @@ def admin_work_category_v44_health():
         "handlers": sorted(guard.HANDLERS),
         "legacy_category_hooks_removed": True,
     }
+
+
+@core.app.get("/__health/admin-work-category-v44-noop")
+def admin_work_category_v44_noop():
+    admin = core.db.session.scalar(
+        select(core.Employee)
+        .join(core.Role, core.Employee.role_id == core.Role.id)
+        .where(core.Role.name == "관리자", core.Employee.status == "재직")
+        .order_by(core.Employee.id)
+    )
+    category = core.db.session.scalar(
+        select(core.WorkCategory)
+        .where(core.WorkCategory.active.is_(True), core.WorkCategory.small_name != "")
+        .order_by(core.WorkCategory.id)
+    )
+    if not admin or not category:
+        return "missing-admin-or-category", 500
+
+    client = core.app.test_client()
+    with client.session_transaction() as session:
+        session["_user_id"] = str(admin.id)
+        session["_fresh"] = True
+
+    page = client.get("/admin?section=work-categories")
+    html = page.get_data(as_text=True)
+    match = re.search(r'<meta\s+name="csrf-token"\s+content="([^"]+)"', html)
+    if not match:
+        return "csrf-token-not-found", 500
+    token = match.group(1)
+
+    response = client.post(
+        "/tasks/new?category_manager=1&category_transport=v14&category_action=rename_small&awc_admin=v42",
+        data={
+            "csrf_token": token,
+            "operation": "rename_small",
+            "awc_operation": "rename_small",
+            "awc_admin": "v42",
+            "category_action": "rename_small",
+            "category_manager": "1",
+            "work_category_id": str(category.id),
+            "new_small_name": category.small_name,
+        },
+        headers={
+            "Accept": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+            "X-MedPark-Category-JSON": "1",
+            "X-Task-Category-Action": "rename_small",
+        },
+        follow_redirects=False,
+    )
+    content_type = response.headers.get("Content-Type", "")
+    marker = response.headers.get("X-MedPark-Admin-Work-Category", "")
+    body = response.get_data(as_text=True)
+    ok = (
+        response.status_code == 200
+        and "application/json" in content_type.lower()
+        and marker == "view-v44"
+        and "변경된 내용이 없습니다" in body
+    )
+    return (
+        f"ok={int(ok)} status={response.status_code} type={content_type} marker={marker} body={body[:160]}",
+        200 if ok else 500,
+        {"Cache-Control": "no-store"},
+    )
