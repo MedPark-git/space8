@@ -6,6 +6,7 @@
   <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block title %}경영사업본부 각 부서(팀) 업무 현황{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260904-work-category-hierarchy') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='task_registration_width.css', v='20260911-task-registration-width-v1') }}">
 </head>
 <body class="{% block body_class %}{% endblock %}"{% if current_user.is_authenticated %} data-current-department-id="{{ current_user.department_id }}" data-current-role="{{ current_user.role.name }}"{% endif %}>
   {% if current_user.is_authenticated %}
