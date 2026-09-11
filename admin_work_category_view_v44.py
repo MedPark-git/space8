@@ -1,9 +1,7 @@
 from functools import wraps
 
-from flask import request, session
+from flask import request
 from flask_login import current_user
-from flask_wtf.csrf import generate_csrf
-from sqlalchemy import select
 
 import app as core
 import task_category_wsgi_guard as guard
@@ -24,6 +22,8 @@ def _find_task_new_endpoint():
 TASK_NEW_ENDPOINT = _find_task_new_endpoint()
 ORIGINAL_TASK_NEW = core.app.view_functions[TASK_NEW_ENDPOINT]
 
+# Remove older category-specific request hooks. Flask-WTF/global request hooks
+# remain untouched; V44 only replaces the actual POST /tasks/new view.
 _hooks = core.app.before_request_funcs.setdefault(None, [])
 _hooks[:] = [
     fn for fn in _hooks
@@ -122,78 +122,3 @@ def admin_work_category_v44_health():
             }
         ],
     }
-
-
-@core.app.get("/__health/admin-work-category-v44-noop")
-def admin_work_category_v44_noop_health():
-    admin = core.db.session.scalar(
-        select(core.Employee)
-        .join(core.Role, core.Employee.role_id == core.Role.id)
-        .where(core.Role.name == "관리자", core.Employee.status == "재직")
-        .order_by(core.Employee.id)
-    )
-    category = core.db.session.scalar(
-        select(core.WorkCategory)
-        .where(core.WorkCategory.active.is_(True), core.WorkCategory.small_name != "")
-        .order_by(core.WorkCategory.id)
-    )
-    if not admin or not category:
-        return {"ok": False, "reason": "admin-or-category-missing"}, 500
-
-    client = core.app.test_client()
-    with client.session_transaction() as sess:
-        sess["_user_id"] = str(admin.id)
-        sess["_fresh"] = True
-
-    with client:
-        # Generate a signed CSRF token in the same test-client session.
-        with client.session_transaction() as sess:
-            raw_csrf = sess.get("csrf_token")
-        if not raw_csrf:
-            response = client.get("/__health/admin-work-category-v44-csrf")
-            token = response.get_data(as_text=True)
-        else:
-            response = client.get("/__health/admin-work-category-v44-csrf")
-            token = response.get_data(as_text=True)
-
-        response = client.post(
-            "/tasks/new?category_manager=1&category_transport=v14&category_action=rename_small&awc_admin=v42",
-            data={
-                "csrf_token": token,
-                "operation": "rename_small",
-                "awc_operation": "rename_small",
-                "awc_admin": "v42",
-                "category_manager": "1",
-                "category_action": "rename_small",
-                "work_category_id": str(category.id),
-                "new_small_name": category.small_name,
-            },
-            headers={
-                "Accept": "application/json",
-                "X-Requested-With": "XMLHttpRequest",
-                "X-MedPark-Category-JSON": "1",
-                "X-Task-Category-Action": "rename_small",
-            },
-            follow_redirects=False,
-        )
-
-    payload = response.get_json(silent=True) if response.is_json else None
-    ok = (
-        response.status_code == 200
-        and isinstance(payload, dict)
-        and payload.get("ok") is True
-        and "변경된 내용이 없습니다" in str(payload.get("message") or "")
-        and response.headers.get("X-MedPark-Admin-Work-Category") == "view-v44"
-    )
-    return {
-        "ok": ok,
-        "status": response.status_code,
-        "is_json": response.is_json,
-        "marker": response.headers.get("X-MedPark-Admin-Work-Category", ""),
-        "message": (payload or {}).get("message") if isinstance(payload, dict) else "",
-    }, (200 if ok else 500)
-
-
-@core.app.get("/__health/admin-work-category-v44-csrf")
-def admin_work_category_v44_csrf_health():
-    return generate_csrf(), 200, {"Content-Type": "text/plain; charset=utf-8"}
