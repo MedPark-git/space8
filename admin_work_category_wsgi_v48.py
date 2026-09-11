@@ -7,6 +7,8 @@ import admin_work_category_server_v19 as api
 
 flask_app = api.core.app
 TARGET_PATH = "/admin/work-categories/manage-v48"
+LEGACY_PATH = "/admin/work-categories/manage"
+TARGET_PATHS = {TARGET_PATH, LEGACY_PATH}
 HEALTH_PATH = "/__health/admin-work-category-v48"
 MARKER = "wsgi-v48"
 
@@ -14,9 +16,8 @@ MARKER = "wsgi-v48"
 class AdminWorkCategoryWSGIV48:
     """Handle administrator work-category CRUD before Flask URL routing.
 
-    This deliberately bypasses Flask's URL map for the dedicated endpoint so
-    production cannot return a route-level 404 even if route registration order
-    differs between deployments.
+    Both the new V48 path and the previous dedicated path are intercepted here,
+    so stale browser tabs cannot fall through to a Flask 404.
     """
 
     def __init__(self, downstream):
@@ -51,10 +52,10 @@ class AdminWorkCategoryWSGIV48:
         if path == HEALTH_PATH:
             return self._text(
                 start_response,
-                "admin_work_category_wsgi=v48 active=1 target=" + TARGET_PATH,
+                "admin_work_category_wsgi=v48 active=1 targets=" + ",".join(sorted(TARGET_PATHS)),
             )
 
-        if path != TARGET_PATH:
+        if path not in TARGET_PATHS:
             return self.downstream(environ, start_response)
 
         if method != "POST":
